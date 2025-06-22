@@ -1,0 +1,529 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client { // <<<--- Tek ve doğru başlangıç
+  provider      = "prisma-client-js"
+  output        = "../src/generated/prisma" // Çıktı yolu
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"] // Tüm hedefler burada
+} // <<<--- generator client bloğunun sonu
+
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ENUM TANIMLAMALARI
+
+enum UserRole {
+  USER  // Standart kullanıcı
+  ADMIN // Yönetici
+  WIP   // Work-In-Progress / Özel rol
+}
+
+enum UserGender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_SAY
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+enum UserAccountStatus {
+  ACTIVE
+  PENDING_VERIFICATION
+  SUSPENDED
+}
+
+enum ChatRoomType {
+  PUBLIC
+  PRIVATE
+  VOICE_ONLY
+}
+
+enum ChatRoomStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  GIFT
+  SYSTEM
+}
+
+enum TransactionType {
+  COIN_PURCHASE
+  GIFT_SEND
+  DIAMOND_CONVERSION
+  STREAM_REWARD
+  // Diğer işlem türleri eklenebilir
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum FollowRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum GameSessionStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED_ACCEPTED
+  REVIEWED_REJECTED
+  RESOLVED
+}
+
+enum NotificationType {
+  NEW_FOLLOWER
+  MESSAGE_RECEIVED
+  GIFT_RECEIVED
+  SYSTEM_ANNOUNCEMENT
+  FRIEND_REQUEST_RECEIVED
+  FRIEND_REQUEST_ACCEPTED
+  REPORT_UPDATE
+  // Diğer bildirim türleri eklenebilir
+}
+
+enum StreamStatus {
+  LIVE
+  OFFLINE
+  SCHEDULED
+  ENDED
+}
+
+model User {
+  oneSignalPlayers    OneSignalPlayer[]
+  likedGames GameLike[]
+  gameRatings GameRating[]
+  isPrivate         Boolean   @default(false)
+  pinnedMessagesInRooms Json?
+  twoFactorEnabled        Boolean   @default(false)
+  twoFactorSecret         String?   // ŞİFRELENMELİ! Bu örnekte düz metin.
+  twoFactorRecoveryCodes  Json?     // Hash'lenmiş backup
+  emailVerificationToken       String?   @unique
+  emailVerificationExpiresAt DateTime?
+  passwordResetToken           String?   @unique
+  passwordResetExpiresAt       DateTime?
+  id                      String    @id @default(cuid())
+  authProvider            String?
+  authId                  String?   @unique
+  username                String    @unique
+  nickname                String?
+  profilePictureUrl       String?
+  bio                     String?
+  gender                  UserGender?
+  birthDate               DateTime?
+  country                 String?
+  region                  String?
+  level                   Int       @default(1)
+  vipLevel                Int       @default(0)
+  coins                   BigInt    @default(0)
+  diamonds                BigInt    @default(0)
+  email                   String    @unique
+  password                String?   // E-posta/şifre ile giriş için
+  passwordChangedAt       DateTime?
+  isEmailVerified         Boolean   @default(false)
+  lastLoginAt             DateTime?
+  followingCount          Int       @default(0)
+  followerCount           Int       @default(0)
+  status                  UserStatus    @default(ACTIVE)
+  isOnline                Boolean   @default(false)
+  preferences             Json?
+  allowDirectMessages     Boolean   @default(true)
+  notificationSettings    Json?
+  blockedUserIds          Json? // Array of user IDs
+  accountStatus           UserAccountStatus    @default(ACTIVE)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // YENİ ROL ALANI
+  role                    UserRole  @default(USER) // Varsayılan rol USER
+
+  transactions            Transaction[]
+  sentMessages            Message[]     @relation("SentMessages")
+  receivedMessages        Message[]     @relation("ReceivedMessages")
+  reportsMade             Report[]      @relation("Reporter")
+  reportsReceived         Report[]      @relation("ReportedUser")
+  reviewedReports         Report[]      @relation("ReviewedReports") // Reports reviewed by this user (admin/mod)
+  hostedGameSessions      GameSession[] @relation("Host")
+  streams                 Stream[]       @relation("Broadcaster")
+  ownedChatRooms          ChatRoom[]     @relation("Owner")
+  sentFollowRequests     FollowRequest[] @relation("SentFollowRequests")
+  receivedFollowRequests FollowRequest[] @relation("ReceivedFollowRequests")
+
+  followedBy              Follow[]      @relation("FollowingRelation") // Users that this user is followed by
+  following               Follow[]      @relation("FollowerRelation")  // Users that this user follows
+
+  @@index([username])
+  @@fulltext([username, nickname])
+  refreshTokens RefreshToken[]
+  postCount     Int       @default(0)
+  notifications           Notification[] @relation("Recipient")     // Kullanıcının aldığı bildirimler
+  sentNotifications       Notification[] @relation("Sender")        // Kullanıcının gönderdiği bildirimler (eğer kullanıcılar da bildirim gönderebiliyorsa veya sistem mesajları için)
+}
+
+
+model ChatRoom {
+  id                        String    @id @default(cuid())
+  ownerId                   String
+  owner                     User      @relation("Owner", fields: [ownerId], references: [id])
+  title                     String
+  description               String?
+  coverImageUrl             String?
+  type                      ChatRoomType
+  passwordHash              String?
+  maxParticipants           Int
+  currentParticipantCount   Int       @default(0)
+  activeParticipants        Json?     // Array of user IDs
+  moderators                Json?     // Array of user IDs
+  speakerSeatCount          Int       @default(0)
+  speakerSeatAssignments    Json?
+  rtcChannelName            String?
+  tags                      Json?     // Array of strings
+  status                    ChatRoomStatus    @default(ACTIVE)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  messages                  Message[]
+  reports                   Report[]  @relation("ReportedRoom")
+  pinnedMessageIds Json? @default("[]")
+
+  @@index([ownerId])
+}
+
+model Message {
+  id                String    @id @default(cuid())
+  conversationId    String    // Can be chatRoomId or a DM-specific ID
+  senderId          String
+  sender            User      @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId        String?   // For DMs
+  receiver          User?     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  roomId            String?   // For ChatRoom messages
+  room              ChatRoom? @relation(fields: [roomId], references: [id])
+  messageType       MessageType
+  content           String?   @db.Text // Use @db.Text for potentially long content
+  giftId            String?
+  gift              Gift?     @relation(fields: [giftId], references: [id])
+  readStatus        Json?     // e.g., {"userId1": "read", "userId2": "delivered"}
+  isDeletedFor      Json?     // Array of user IDs for whom message is deleted
+  createdAt         DateTime  @default(now())
+
+  repliedToMessageId String?
+  repliedToMessage  Message?  @relation("Replies", fields: [repliedToMessageId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  replies           Message[] @relation("Replies")
+
+  isPinned          Boolean   @default(false)
+  reactions         Json?     @default("{}") // {"emoji_unicode": ["userId1", "userId2"], "👍": ["userId3"]}
+
+  reports           Report[]  @relation("ReportedMessage")
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([roomId])
+  @@index([conversationId])
+  @@index([repliedToMessageId])
+}
+
+model Transaction {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id])
+  transactionType         TransactionType
+  amount                  Decimal   @db.Decimal(10, 2) // Example precision
+  currency                String    // E.g., COIN, DIAMOND, USD
+  relatedEntityId         String?
+  relatedEntityType       String?   // E.g., GIFT, STREAM_REWARD
+  description             String?   @db.Text
+  platform                String?   // E.g., IOS, ANDROID, WEB
+  platformTransactionId   String?   @unique
+  status                  TransactionStatus @default(PENDING)
+  createdAt               DateTime  @default(now())
+  paymentGatewayToken     String?  @unique
+  @@index([userId])
+  @@index([transactionType])
+  @@index([status])
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("FollowerRelation", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("FollowingRelation", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model FollowRequest {
+  id          String   @id @default(cuid())
+  requesterId String   // Takip isteği gönderen
+  requester   User     @relation("SentFollowRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipientId String   // Takip isteği alan
+  recipient   User     @relation("ReceivedFollowRequests", fields: [recipientId], references: [id], onDelete: Cascade)
+  status      FollowRequestStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([requesterId, recipientId]) // Bir kullanıcı diğerine sadece bir istek gönderebilir
+  @@index([requesterId])
+  @@index([recipientId])
+  @@index([status])
+}
+
+model Game {
+  id                String    @id @default(cuid())
+  gameId            String    @unique // External game identifier
+  name              String
+  description       String?   @db.Text
+  iconUrl           String?
+  entryCost         BigInt    @default(0)
+  rewardStructure   Json?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  developer         String?   // Oyun geliştiricisi
+  publisher         String?   // Oyun yayıncısı
+  releaseDate       DateTime? // Yayınlanma tarihi
+  platformCompat    Json?     // {"web": true, "ios": "v1.2+", "android": "v2.0+"}
+
+  categoryId        String?   // Eğer bir oyun sadece bir kategoriye aitse
+  category          GameCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  gameGenreTags GameGenreTag[]
+
+  likeCount         Int       @default(0) // Beğeni sayısı
+  playCount         Int       @default(0) // Oynanma sayısı (GameSession'dan güncellenebilir)
+  averageRating     Float     @default(0) // Ortalama puan
+  ratingCount       Int       @default(0) // Puan veren kullanıcı sayısı
+
+  gameSessions      GameSession[]
+  likes             GameLike[]
+  ratings           GameRating[]
+
+  @@index([categoryId])
+  @@index([name]) // İsimle arama için
+  @@fulltext([name, description, gameId]) // Daha gelişmiş arama için (veritabanı desteğine bağlı)
+}
+
+model GenreTag {
+  id            String   @id @default(cuid())
+  name          String   @unique // "aksiyon", "macera"
+  slug          String   @unique
+  createdAt     DateTime @default(now())
+
+  gameGenreTags GameGenreTag[]
+}
+
+model GameGenreTag {
+  id          String   @id @default(cuid())
+  gameId      String
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  genreTagId  String
+  genreTag    GenreTag @relation(fields: [genreTagId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime @default(now())
+
+  @@unique([gameId, genreTagId])
+  @@index([gameId])
+  @@index([genreTagId])
+}
+
+model GameLike {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, gameId])
+  @@index([userId])
+  @@index([gameId])
+}
+
+model GameRating {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  rating    Int      // Örneğin 1-5 arası
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, gameId])
+  @@index([userId])
+  @@index([gameId])
+  @@index([rating])
+}
+
+model GameCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique // Kategoriye URL dostu erişim için
+  iconUrl   String?
+  games     Game[]
+  createdAt DateTime @default(now())
+}
+
+model GameSession {
+  id                String    @id @default(cuid())
+  gameId            String
+  game              Game      @relation(fields: [gameId], references: [id])
+  hostId            String
+  host              User      @relation("Host", fields: [hostId], references: [id])
+  participants      Json?     // Array of user IDs or participant objects
+  viewerIds         Json?     // Array of user IDs
+  maxPlayers        Int
+  currentPlayers    Int       @default(0)
+  startTime         DateTime?
+  endTime           DateTime?
+  status            GameSessionStatus @default(WAITING)
+  createdAt         DateTime  @default(now())
+
+  @@index([gameId])
+  @@index([hostId])
+  @@index([status])
+}
+
+model Gift {
+  id             String    @id @default(cuid())
+  giftId         String    @unique // External gift identifier
+  name           String
+  description    String?   @db.Text
+  imageUrl       String
+  animationUrl   String?
+  cost           BigInt    // In coins
+  value          BigInt    // Value in diamonds for receiver
+  category       String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  messages       Message[]
+}
+
+model Report {
+  id                  String    @id @default(cuid())
+  reporterId          String
+  reporter            User      @relation("Reporter", fields: [reporterId], references: [id])
+  reportedUserId      String?
+  reportedUser        User?     @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  reportedStreamId    String?
+  reportedStream      Stream?   @relation(fields: [reportedStreamId], references: [id])
+  reportedRoomId      String?
+  reportedRoom        ChatRoom? @relation("ReportedRoom", fields: [reportedRoomId], references: [id])
+  reportedMessageId   String?
+  reportedMessage     Message?  @relation("ReportedMessage", fields: [reportedMessageId], references: [id])
+  reason              String
+  description         String?   @db.Text
+  status              ReportStatus @default(PENDING)
+  reviewedById        String?   // Admin/Moderator User ID
+  reviewer            User?     @relation("ReviewedReports", fields: [reviewedById], references: [id])
+  reviewTimestamp     DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([reporterId])
+  @@index([reportedUserId])
+  @@index([reportedStreamId])
+  @@index([reportedRoomId])
+  @@index([reportedMessageId])
+  @@index([status])
+}
+
+model Notification {
+  id                  String    @id @default(cuid())
+  recipientId         String
+  recipient           User      @relation("Recipient", fields: [recipientId], references: [id])
+  senderId            String?   // System notifications might not have a sender
+  sender              User?     @relation("Sender", fields: [senderId], references: [id])
+  type                NotificationType
+  relatedEntityId     String?   // E.g., userId for new follower, messageId, giftId
+  relatedEntityType   String?   // E.g., USER, MESSAGE, GIFT
+  content             String?   @db.Text
+  isRead              Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+
+  @@index([recipientId])
+  @@index([type])
+  @@index([isRead])
+}
+
+model Stream {
+  id                      String    @id @default(cuid())
+  broadcasterId           String
+  broadcaster             User      @relation("Broadcaster", fields: [broadcasterId], references: [id])
+  title                   String?
+  coverImageUrl           String?
+  status                  StreamStatus @default(OFFLINE)
+  startTime               DateTime?
+  endTime                 DateTime?
+  currentViewers          Int       @default(0)
+  peakViewers             Int       @default(0)
+  totalDiamondsReceived   BigInt    @default(0)
+  tags                    Json?     // Array of strings
+  location                Json?     // E.g., {"latitude": 12.34, "longitude": 56.78}
+  rtcChannelName          String?
+  recordingUrl            String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  reports                 Report[]
+
+  @@index([broadcasterId])
+  @@index([status])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique @db.VarChar(512)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revokedAt DateTime?
+  ipAddress String?  @db.VarChar(45)
+  userAgent String?  @db.VarChar(255)
+  lastUsedAt DateTime @default(now())
+  @@index([userId])
+}
+
+model OneSignalPlayer {
+  id          String   @id @default(cuid())
+  playerId    String   @unique // OneSignal'dan gelen Player ID
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo  String?  // Cihaz bilgisi (opsiyonel)
+  lastSeen    DateTime @default(now()) @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}

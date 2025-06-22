@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Sesli Sohbet Testi</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; }
+        button:disabled { background-color: #ccc; }
+        button.hangup { background-color: #dc3545; }
+        .controls, .status, .audio-elements { margin-bottom: 20px; }
+        label { margin-right: 10px; }
+        input[type="text"] { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        .hidden { display: none; }
+        #localAudio, #remoteAudio { border: 1px solid #ddd; margin-top: 10px; }
+        .log {
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.9em;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebRTC Sesli Sohbet Testi</h1>
+
+        <div class="controls">
+            <label for="userId">Kullanıcı ID:</label>
+            <input type="text" id="userId" placeholder="benzersiz_kullanici_id">
+
+            <label for="streamId">Oda ID (Stream ID):</label>
+            <input type="text" id="streamId" placeholder="oda_id_123">
+
+            <button id="joinRoomBtn">Odaya Katıl</button>
+            <button id="leaveRoomBtn" class="hangup" disabled>Odadan Ayrıl</button>
+        </div>
+
+        <div class="status">
+            <h2>Durum</h2>
+            <p id="connectionStatus">Bağlantı durumu: Beklemede</p>
+            <p>Sinyalizasyon Sunucusu: <code id="signalingServerUrl"></code></p>
+        </div>
+
+        <div class="audio-elements">
+            <h2>Ses</h2>
+            <div>
+                <h3>Yerel Ses (Siz)</h3>
+                <audio id="localAudio" controls autoplay muted></audio>
+            </div>
+            <div>
+                <h3>Uzak Ses (Diğer Kullanıcı)</h3>
+                <audio id="remoteAudio" controls autoplay></audio>
+            </div>
+        </div>
+
+        <h2>Loglar</h2>
+        <div id="logs" class="log"></div>
+    </div>
+
+    <script>
+        // Sinyalizasyon sunucunuzun adresi (portuyla birlikte)
+        // Eğer sinyalizasyon sunucunuz SSL (wss) kullanıyorsa 'wss://...' olarak değiştirin.
+        const SIGNALING_SERVER_URL_BASE = 'ws://localhost:3000'; // Sunucunuzun çalıştığı port
+
+        const userIdInput = document.getElementById('userId');
+        const streamIdInput = document.getElementById('streamId');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+        const localAudio = document.getElementById('localAudio');
+        const remoteAudio = document.getElementById('remoteAudio');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const signalingServerUrlDisplay = document.getElementById('signalingServerUrl');
+        const logsDiv = document.getElementById('logs');
+
+        let localStream;
+        let ws;
+        // PeerConnections'ı userId'ye göre saklayacağız
+        // { 'otherUserId1': RTCPeerConnection, 'otherUserId2': RTCPeerConnection }
+        let peerConnections = {};
+        let myUserId = '';
+        let currentStreamId = '';
+
+        // Google'ın genel STUN sunucuları
+        const iceConfiguration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                // Eğer kendi TURN sunucunuz varsa buraya ekleyin:
+                // {
+                //   urls: 'turn:your-turn-server.com:3478',
+                //   username: 'user',
+                //   credential: 'password'
+                // }
+            ]
+        };
+
+        function log(message) {
+            console.log(message);
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logsDiv.appendChild(p);
+            logsDiv.scrollTop = logsDiv.scrollHeight; // Otomatik aşağı kaydır
+        }
+
+        userIdInput.value = `user_${Math.random().toString(36).substring(2, 7)}`; // Rastgele kullanıcı ID'si
+        streamIdInput.value = `test_room_${Math.floor(Math.random() * 1000)}`; // Test için varsayılan oda
+
+
+        joinRoomBtn.addEventListener('click', async () => {
+            myUserId = userIdInput.value.trim();
+            currentStreamId = streamIdInput.value.trim();
+
+            if (!myUserId || !currentStreamId) {
+                alert("Kullanıcı ID ve Oda ID girilmelidir.");
+                return;
+            }
+
+            joinRoomBtn.disabled = true;
+            leaveRoomBtn.disabled = false;
+            userIdInput.disabled = true;
+            streamIdInput.disabled = true;
+
+            signalingServerUrlDisplay.textContent = `${SIGNALING_SERVER_URL_BASE}?userId=${myUserId}`; // Query param ile userId gönderimi
+
+            try {
+                log('Yerel medya (mikrofon) erişimi isteniyor...');
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                localAudio.srcObject = localStream;
+                log('Yerel medya başarıyla alındı.');
+
+                connectToSignalingServer();
+            } catch (error) {
+                log(`Medya erişim hatası: ${error.message}`);
+                console.error("getUserMedia error: ", error);
+                resetUI();
+            }
+        });
+
+        leaveRoomBtn.addEventListener('click', () => {
+            hangUp();
+            resetUI();
+        });
+
+        function connectToSignalingServer() {
+            // WebSocket bağlantı URL'sine userId'yi query parametresi olarak ekliyoruz
+            // Sinyalizasyon sunucunuz bu parametreyi okuyacak şekilde ayarlanmış olmalı
+            const wsUrl = `${SIGNALING_SERVER_URL_BASE}?userId=${myUserId}`;
+            signalingServerUrlDisplay.textContent = wsUrl; // Güncel URL'yi göster
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                log('Sinyalizasyon sunucusuna bağlanıldı.');
+                connectionStatus.textContent = 'Bağlantı durumu: Sinyalizasyon sunucusuna bağlı';
+                // Odaya katılma isteği gönder
+                sendMessage({ type: 'join-room', payload: { streamId: currentStreamId, userId: myUserId } });
+            };
+
+            ws.onmessage = async (event) => {
+                const message = JSON.parse(event.data);
+                log(`Sinyal sunucusundan mesaj alındı: ${message.type}`);
+                // console.log("Raw message from server:", message);
+
+                switch (message.type) {
+                    case 'existing-users': // Odaya ilk katıldığımızda mevcut kullanıcılar gelir
+                        log(`Odada mevcut kullanıcılar: ${message.payload.users.join(', ')}`);
+                        for (const userId of message.payload.users) {
+                            if (userId !== myUserId) {
+                                await createPeerConnection(userId, true); // true = ben offer oluşturacağım
+                            }
+                        }
+                        break;
+                    case 'user-joined': // Yeni bir kullanıcı odaya katıldı
+                        log(`Yeni kullanıcı katıldı: ${message.payload.userId}`);
+                        if (message.payload.userId !== myUserId) {
+                            // Yeni katılan kullanıcı offer gönderecek, biz bekleyeceğiz.
+                            // createPeerConnection'ı offer geldiğinde çağıracağız.
+                            // Ancak, mesh mimaride herkes herkese offer gönderebilir,
+                            // bu yüzden proaktif olarak da offer gönderebiliriz.
+                            // Şimdilik, offer'ı bekleyelim veya karışıklık olmaması için
+                            // sadece "existing-users" listesindekilere biz offer gönderelim.
+                            // Yeni katılanlar, "existing-users" mesajını aldıklarında onlar offer gönderir.
+                            // Bu örnekte, daha basit olması için yeni katılan bize offer gönderecek varsayalım.
+                            // Ya da, geleneksel olarak, odaya sonradan katılan offer'ı yapar.
+                            // Bu durumda, user-joined mesajını aldığımızda peer connection'ı oluşturup bekleyebiliriz.
+                             await createPeerConnection(message.payload.userId, false); // false = offer bekleyeceğim
+                        }
+                        break;
+                    case 'user-left':
+                        log(`Kullanıcı ayrıldı: ${message.payload.userId}`);
+                        handleUserLeft(message.payload.userId);
+                        break;
+                    case 'offer':
+                        log(`Offer alındı: ${message.payload.senderUserId} kullanıcısından`);
+                        await handleOffer(message.payload.senderUserId, message.payload.sdp);
+                        break;
+                    case 'answer':
+                        log(`Answer alındı: ${message.payload.senderUserId} kullanıcısından`);
+                        await handleAnswer(message.payload.senderUserId, message.payload.sdp);
+                        break;
+                    case 'candidate':
+                        log(`ICE adayı alındı: ${message.payload.senderUserId} kullanıcısından`);
+                        handleCandidate(message.payload.senderUserId, message.payload.candidate);
+                        break;
+                    case 'room-full':
+                        log('Oda dolu!');
+                        alert('Oda dolu, katılamazsınız.');
+                        hangUp();
+                        resetUI();
+                        break;
+                    case 'error':
+                        log(`Sunucudan hata: ${message.message}`);
+                        if (message.message.includes("Oda bulunamadı")) {
+                            alert("Oda bulunamadı veya aktif değil. Lütfen geçerli bir Oda ID girin.");
+                            hangUp();
+                            resetUI();
+                        }
+                        break;
+                    case 'force-disconnect':
+                        log(`Bağlantı sunucu tarafından zorla kesildi: ${message.message}`);
+                        alert(`Bağlantınız kesildi: ${message.message}`);
+                        hangUp();
+                        resetUI();
+                        break;
+                    default:
+                        log(`Bilinmeyen mesaj tipi: ${message.type}`);
+                }
+            };
+
+            ws.onerror = (error) => {
+                log('WebSocket hatası.');
+                console.error("WebSocket Error: ", error);
+                connectionStatus.textContent = 'Bağlantı durumu: WebSocket Hatası';
+            };
+
+            ws.onclose = () => {
+                log('Sinyalizasyon sunucusuyla bağlantı kesildi.');
+                connectionStatus.textContent = 'Bağlantı durumu: Bağlantı Kesildi';
+                // Eğer kasıtlı olarak ayrılmadıysak, UI'ı sıfırlayabiliriz.
+                // Ancak hangUp zaten bunu yapıyor.
+            };
+        }
+
+        async function createPeerConnection(targetUserId, amIOfferer) {
+            if (peerConnections[targetUserId]) {
+                log(`${targetUserId} için zaten bir peer connection var.`);
+                return peerConnections[targetUserId];
+            }
+            log(`${targetUserId} için peer connection oluşturuluyor... (Ben offerer: ${amIOfferer})`);
+            const pc = new RTCPeerConnection(iceConfiguration);
+            peerConnections[targetUserId] = pc;
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    log(`ICE adayı gönderiliyor: ${targetUserId} kullanıcısına`);
+                    sendMessage({
+                        type: 'candidate',
+                        payload: {
+                            targetUserId: targetUserId,
+                            candidate: event.candidate,
+                            streamId: currentStreamId // Sinyal sunucusu bunu isteyebilir
+                        }
+                    });
+                }
+            };
+
+            pc.ontrack = (event) => {
+                log(`Uzak ses izi alındı: ${targetUserId} kullanıcısından`);
+                if (event.streams && event.streams[0]) {
+                    remoteAudio.srcObject = event.streams[0];
+                } else {
+                    // Eski tarayıcılar için fallback
+                    let inboundStream = new MediaStream();
+                    inboundStream.addTrack(event.track);
+                    remoteAudio.srcObject = inboundStream;
+                }
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                log(`${targetUserId} için ICE bağlantı durumu: ${pc.iceConnectionState}`);
+                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'closed') {
+                    log(`${targetUserId} ile bağlantı kesildi/başarısız oldu.`);
+                    // handleUserLeft(targetUserId); // Bağlantı koptuğunda kullanıcıyı temizle
+                }
+            };
+
+            // Yerel ses akışını peer connection'a ekle
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    log(`Yerel ses izi ${targetUserId} için pc'ye ekleniyor.`);
+                    pc.addTrack(track, localStream);
+                });
+            } else {
+                log("UYARI: Yerel stream henüz hazır değil, pc'ye eklenemedi!");
+            }
+
+
+            if (amIOfferer) {
+                try {
+                    log(`Offer oluşturuluyor: ${targetUserId} kullanıcısına`);
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    log(`Offer gönderiliyor: ${targetUserId} kullanıcısına`);
+                    sendMessage({
+                        type: 'offer',
+                        payload: {
+                            targetUserId: targetUserId,
+                            sdp: pc.localDescription,
+                            streamId: currentStreamId
+                        }
+                    });
+                } catch (error) {
+                    log(`Offer oluşturma/gönderme hatası (${targetUserId}): ${error.message}`);
+                    console.error("Error creating/sending offer:", error);
+                }
+            }
+            return pc;
+        }
+
+        async function handleOffer(senderUserId, sdp) {
+            let pc = peerConnections[senderUserId];
+            if (!pc) {
+                log(`Offer alındı ama ${senderUserId} için peer connection yok. Oluşturuluyor...`);
+                pc = await createPeerConnection(senderUserId, false); // false = ben offerer değilim, offer aldım
+            }
+
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                log(`Answer oluşturuluyor: ${senderUserId} kullanıcısına`);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                log(`Answer gönderiliyor: ${senderUserId} kullanıcısına`);
+                sendMessage({
+                    type: 'answer',
+                    payload: {
+                        targetUserId: senderUserId,
+                        sdp: pc.localDescription,
+                        streamId: currentStreamId
+                    }
+                });
+            } catch (error) {
+                log(`Offer işleme/answer oluşturma hatası (${senderUserId}): ${error.message}`);
+                console.error("Error handling offer / creating answer:", error);
+            }
+        }
+
+        async function handleAnswer(senderUserId, sdp) {
+            const pc = peerConnections[senderUserId];
+            if (pc) {
+                try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                    log(`Answer (${senderUserId} kullanıcısından) başarıyla ayarlandı.`);
+                } catch (error) {
+                    log(`Answer işleme hatası (${senderUserId}): ${error.message}`);
+                    console.error("Error handling answer:", error);
+                }
+            } else {
+                log(`Answer alındı ama ${senderUserId} için peer connection yok.`);
+            }
+        }
+
+        function handleCandidate(senderUserId, candidate) {
+            const pc = peerConnections[senderUserId];
+            if (pc) {
+                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                    .then(() => log(`ICE adayı (${senderUserId} kullanıcısından) eklendi.`))
+                    .catch(e => {
+                        log(`ICE adayı ekleme hatası (${senderUserId}): ${e.message}`);
+                        console.error("Error adding ICE candidate:", e);
+                    });
+            } else {
+                log(`ICE adayı alındı ama ${senderUserId} için peer connection yok.`);
+            }
+        }
+
+        function handleUserLeft(userId) {
+            const pc = peerConnections[userId];
+            if (pc) {
+                pc.close();
+                log(`${userId} için peer connection kapatıldı.`);
+            }
+            delete peerConnections[userId];
+            // Eğer ayrılan kullanıcıdan ses alıyorsak, remoteAudio'yu temizle
+            // Bu, birden fazla katılımcı olduğunda daha karmaşık hale gelir.
+            // Şimdilik, sadece bir remote audio elementimiz olduğu için,
+            // kalan son kullanıcı ayrıldığında temizleyebiliriz.
+            if (Object.keys(peerConnections).length === 0) {
+                 if (remoteAudio.srcObject) {
+                    remoteAudio.srcObject.getTracks().forEach(track => track.stop());
+                    remoteAudio.srcObject = null;
+                    log("Uzak ses temizlendi.");
+                }
+            }
+        }
+
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+                // log(`Mesaj gönderildi: ${message.type} -> ${message.payload?.targetUserId || 'oda'}`);
+            } else {
+                log("WebSocket bağlantısı açık değil. Mesaj gönderilemedi.");
+            }
+        }
+
+        function hangUp() {
+            log("Ayrılma işlemi başlatıldı...");
+            if (ws) {
+                sendMessage({ type: 'leave-room', payload: { streamId: currentStreamId, userId: myUserId } });
+                ws.close();
+                ws = null;
+            }
+            for (const userId in peerConnections) {
+                if (peerConnections[userId]) {
+                    peerConnections[userId].close();
+                }
+            }
+            peerConnections = {};
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                localAudio.srcObject = null;
+                log("Yerel medya durduruldu.");
+            }
+            if (remoteAudio.srcObject) {
+                remoteAudio.srcObject.getTracks().forEach(track => track.stop());
+                remoteAudio.srcObject = null;
+                log("Uzak ses durduruldu.");
+            }
+        }
+
+        function resetUI() {
+            joinRoomBtn.disabled = false;
+            leaveRoomBtn.disabled = true;
+            userIdInput.disabled = false;
+            streamIdInput.disabled = false;
+            connectionStatus.textContent = 'Bağlantı durumu: Beklemede';
+            signalingServerUrlDisplay.textContent = SIGNALING_SERVER_URL_BASE;
+            log("Arayüz sıfırlandı.");
+        }
+
+        // Sayfa yüklendiğinde UI'ı hazırla
+        resetUI();
+
+    </script>
+</body>
+</html>

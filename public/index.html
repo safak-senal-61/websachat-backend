@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple-Peer Görüntülü Sohbet</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Basit Görüntülü Sohbet</h1>
+    <div class="video-container">
+        <video id="myVideo" muted autoplay playsinline></video>
+        <video id="peerVideo" autoplay playsinline></video>
+    </div>
+    <div id="status">Bağlantı bekleniyor...</div>
+
+    <!-- socket.io kütüphanesini kendi sunucumuzdan çekiyoruz -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- simple-peer kütüphanesini CDN'den çekiyoruz -->
+    <script src="https://unpkg.com/simple-peer/simplepeer.min.js"></script>
+    <!-- Kendi script dosyamız -->
+    <script src="script.js"></script>
+</body>
+</html>

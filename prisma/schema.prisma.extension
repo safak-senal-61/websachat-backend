@@ -1,0 +1,229 @@
+// Turnuva sistemi için ek modeller
+
+enum TournamentStatus {
+  UPCOMING
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TournamentFormat {
+  SINGLE_ELIMINATION
+  DOUBLE_ELIMINATION
+  ROUND_ROBIN
+  SWISS
+  CUSTOM
+}
+
+enum MatchStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Tournament {
+  id                String            @id @default(cuid())
+  name              String
+  description       String?
+  gameId            String
+  game              Game              @relation(fields: [gameId], references: [id])
+  organizerId       String
+  organizer         User              @relation(fields: [organizerId], references: [id])
+  status            TournamentStatus  @default(UPCOMING)
+  format            TournamentFormat  @default(SINGLE_ELIMINATION)
+  startDate         DateTime
+  endDate           DateTime?
+  registrationStart DateTime
+  registrationEnd   DateTime
+  maxParticipants   Int
+  currentParticipants Int             @default(0)
+  entryFee          BigInt            @default(0)
+  prizePool         BigInt            @default(0)
+  rules             String?
+  coverImageUrl     String?
+  participants      TournamentParticipant[]
+  matches           TournamentMatch[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+}
+
+model TournamentParticipant {
+  id            String      @id @default(cuid())
+  tournamentId  String
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id])
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  registeredAt  DateTime    @default(now())
+  isEliminated  Boolean     @default(false)
+  rank          Int?
+  score         Int         @default(0)
+  
+  @@unique([tournamentId, userId])
+}
+
+model TournamentMatch {
+  id            String      @id @default(cuid())
+  tournamentId  String
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id])
+  round         Int
+  matchNumber   Int
+  player1Id     String?
+  player1       User?       @relation("Player1", fields: [player1Id], references: [id])
+  player2Id     String?
+  player2       User?       @relation("Player2", fields: [player2Id], references: [id])
+  winnerId      String?
+  winner        User?       @relation("Winner", fields: [winnerId], references: [id])
+  player1Score  Int         @default(0)
+  player2Score  Int         @default(0)
+  status        MatchStatus @default(SCHEDULED)
+  scheduledTime DateTime?
+  completedTime DateTime?
+  nextMatchId   String?     // İlerleme için bir sonraki maç
+  nextMatch     TournamentMatch? @relation("NextMatch", fields: [nextMatchId], references: [id])
+  previousMatches TournamentMatch[] @relation("NextMatch")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+// Başarı ve rozet sistemi için modeller
+
+model Achievement {
+  id              String    @id @default(cuid())
+  name            String
+  description     String
+  iconUrl         String
+  requiredActions Json      // Başarıyı kazanmak için gerekli aksiyonlar
+  rewardCoins     BigInt    @default(0)
+  rewardDiamonds  BigInt    @default(0)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  userAchievements UserAchievement[]
+}
+
+model UserAchievement {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  achievementId  String
+  achievement    Achievement @relation(fields: [achievementId], references: [id])
+  unlockedAt     DateTime    @default(now())
+  progress       Int         @default(0) // Tamamlanma yüzdesi
+  isCompleted    Boolean     @default(false)
+  
+  @@unique([userId, achievementId])
+}
+
+// Eşleştirme sistemi için modeller
+
+model PlayerSkill {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  gameId        String
+  game          Game      @relation(fields: [gameId], references: [id])
+  skillRating   Int       @default(1000) // ELO/MMR puanı
+  gamesPlayed   Int       @default(0)
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  lastPlayed    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([userId, gameId])
+}
+
+model MatchmakingQueue {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  gameId        String
+  game          Game      @relation(fields: [gameId], references: [id])
+  skillRating   Int
+  region        String?
+  joinedAt      DateTime  @default(now())
+  status        String    @default("WAITING") // WAITING, MATCHED, CANCELLED
+  
+  @@index([gameId, status])
+}
+
+// Abonelik sistemi için modeller
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PENDING
+}
+
+model SubscriptionPlan {
+  id              String    @id @default(cuid())
+  name            String
+  description     String
+  price           BigInt
+  currency        String    @default("USD")
+  durationDays    Int
+  features        Json
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  subscriptions   Subscription[]
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id])
+  planId          String
+  plan            SubscriptionPlan   @relation(fields: [planId], references: [id])
+  status          SubscriptionStatus @default(ACTIVE)
+  startDate       DateTime           @default(now())
+  endDate         DateTime
+  autoRenew       Boolean            @default(true)
+  paymentMethod   String
+  lastPaymentId   String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+// Oyun sunucusu yönetimi için modeller
+
+enum ServerStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  OFFLINE
+}
+
+model GameServer {
+  id              String        @id @default(cuid())
+  name            String
+  ipAddress       String
+  port            Int
+  region          String
+  capacity        Int
+  currentPlayers  Int           @default(0)
+  status          ServerStatus  @default(AVAILABLE)
+  gameId          String?
+  game            Game?         @relation(fields: [gameId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  serverSessions  ServerSession[]
+}
+
+model ServerSession {
+  id              String    @id @default(cuid())
+  serverId        String
+  server          GameServer @relation(fields: [serverId], references: [id])
+  gameSessionId   String?
+  gameSession     GameSession? @relation(fields: [gameSessionId], references: [id])
+  startTime       DateTime  @default(now())
+  endTime         DateTime?
+  playerCount     Int       @default(0)
+  status          String    @default("ACTIVE")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

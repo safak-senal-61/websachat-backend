@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA Yönetimi - Websachat</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #0d0d0d; color: #f5f5f5; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+        .container { background-color: #1a1a1a; padding: 25px; border-radius: 10px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); width: 100%; max-width: 500px; border: 1px solid #333; }
+        h1, h2 { color: #007aff; text-align: center; }
+        .section { margin-bottom: 30px; padding: 20px; background-color: #222; border-radius: 8px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; color: #bbb; }
+        input[type="text"], input[type="password"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 15px; border: 1px solid #444; border-radius: 6px; background-color: #2c2c2e; color: #f5f5f5; font-size: 16px; }
+        button { background-color: #007aff; color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: background-color 0.2s; margin-right: 10px; }
+        button:hover { background-color: #0056b3; }
+        button.secondary { background-color: #555; }
+        button.secondary:hover { background-color: #444; }
+        button.danger { background-color: #ff3b30; }
+        button.danger:hover { background-color: #c00; }
+        .qr-code-container img { display: block; margin: 15px auto; border: 5px solid white; }
+        .secret-key { font-family: monospace; background-color: #333; padding: 8px; border-radius: 4px; display: inline-block; margin-bottom: 15px; word-break: break-all; }
+        .message { padding: 10px; margin-top: 15px; border-radius: 5px; text-align: center; }
+        .message.success { background-color: rgba(52,199,89,0.15); color: #34c759; border: 1px solid #34c759;}
+        .message.error { background-color: rgba(255,59,48,0.15); color: #ff3b30; border: 1px solid #ff3b30;}
+        .backup-codes ul { list-style: none; padding: 0; columns: 2; -webkit-columns: 2; -moz-columns: 2; }
+        .backup-codes li { background-color: #333; padding: 8px; margin-bottom: 8px; border-radius: 4px; font-family: monospace; text-align: center;}
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>İki Faktörlü Kimlik Doğrulama (2FA)</h1>
+
+        <div id="statusSection" class="section">
+            <h2>Durum</h2>
+            <p>2FA Durumu: <strong id="2faStatus">Yükleniyor...</strong></p>
+            <button id="btnToggle2FA">Aktifleştir / Devre Dışı Bırak</button>
+        </div>
+
+        <div id="enable2FASection" class="section hidden">
+            <h2>2FA Aktifleştir</h2>
+            <p>Authenticator uygulamanızla (Google Authenticator, Authy vb.) aşağıdaki QR kodu tarayın veya secret key'i manuel girin.</p>
+            <div class="qr-code-container">
+                <img id="qrCodeImage" src="" alt="QR Kodu Yükleniyor...">
+            </div>
+            <p>Secret Key: <code id="secretKeyDisplay" class="secret-key"></code></p>
+            <label for="verificationCode">Doğrulama Kodu:</label>
+            <input type="text" id="verificationCode" placeholder="6 haneli kod" maxlength="6">
+            <button id="btnVerifyAndEnable">Doğrula ve Aktifleştir</button>
+            <div id="enableMessage" class="message"></div>
+        </div>
+
+        <div id="disable2FASection" class="section hidden">
+            <h2>2FA Devre Dışı Bırak</h2>
+            <p>2FA'yı devre dışı bırakmak için lütfen şifrenizi ve (eğer istenirse) mevcut 2FA kodunuzu girin.</p>
+            <label for="disablePassword">Şifreniz:</label>
+            <input type="password" id="disablePassword" placeholder="Mevcut şifreniz">
+            <label for="disable2FACode">2FA Kodu (Gerekliyse):</label>
+            <input type="text" id="disable2FACode" placeholder="6 haneli kod" maxlength="6">
+            <button id="btnConfirmDisable" class="danger">Devre Dışı Bırakmayı Onayla</button>
+            <div id="disableMessage" class="message"></div>
+        </div>
+        
+        <div id="backupCodesSection" class="section hidden">
+            <h2>Yedek Kodlar</h2>
+            <p>2FA cihazınıza erişemediğiniz durumlarda bu kodları kullanabilirsiniz. Lütfen güvenli bir yerde saklayın. Her kod sadece bir kez kullanılabilir.</p>
+            <button id="btnGenerateBackupCodes">Yeni Yedek Kodları Oluştur</button>
+            <ul id="backupCodeList"></ul>
+            <div id="backupMessage" class="message"></div>
+        </div>
+    </div>
+
+    <script src="two_factor_auth.js"></script>
+</body>
+</html>

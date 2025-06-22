@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>E-posta Doğrulama - Websachat</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 100%);
+            color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .container {
+            background: linear-gradient(145deg, #1a1a1a, #252525);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 
+                0 20px 40px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+            text-align: center;
+            width: 100%;
+            max-width: 480px;
+            backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(0, 122, 255, 0.5), transparent);
+        }
+        
+        .icon {
+            font-size: 56px;
+            margin-bottom: 24px;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+        
+        .icon:hover {
+            transform: scale(1.1);
+        }
+        
+        .icon.success { 
+            color: #34c759;
+            filter: drop-shadow(0 0 10px rgba(52, 199, 89, 0.3));
+        }
+        
+        .icon.error { 
+            color: #ff3b30;
+            filter: drop-shadow(0 0 10px rgba(255, 59, 48, 0.3));
+        }
+        
+        .icon.pending { 
+            color: #ff9500;
+            filter: drop-shadow(0 0 10px rgba(255, 149, 0, 0.3));
+        }
+        
+        h1 {
+            background: linear-gradient(135deg, #007aff, #5ac8fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0 0 20px 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 28px;
+            opacity: 0.9;
+        }
+        
+        .message {
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 28px;
+            font-weight: 500;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        
+        .message::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 12px;
+            padding: 1px;
+            background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: subtract;
+        }
+        
+        .message.success { 
+            background: linear-gradient(135deg, rgba(52, 199, 89, 0.15), rgba(52, 199, 89, 0.05));
+            color: #34c759;
+            border: 1px solid rgba(52, 199, 89, 0.3);
+        }
+        
+        .message.error { 
+            background: linear-gradient(135deg, rgba(255, 59, 48, 0.15), rgba(255, 59, 48, 0.05));
+            color: #ff3b30;
+            border: 1px solid rgba(255, 59, 48, 0.3);
+        }
+        
+        .message.pending { 
+            background: linear-gradient(135deg, rgba(255, 149, 0, 0.15), rgba(255, 149, 0, 0.05));
+            color: #ff9500;
+            border: 1px solid rgba(255, 149, 0, 0.3);
+        }
+        
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #007aff;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+            margin: 24px auto;
+            filter: drop-shadow(0 4px 8px rgba(0, 122, 255, 0.3));
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #007aff, #5ac8fa);
+            color: white;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(0, 122, 255, 0.4);
+        }
+        
+        .button:hover::before {
+            left: 100%;
+        }
+        
+        .button:active {
+            transform: translateY(0);
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 30px 24px;
+                margin: 16px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            .icon {
+                font-size: 48px;
+            }
+        }
+        
+        /* Accessibility improvements */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        
+        /* Focus states for accessibility */
+        .button:focus {
+            outline: 2px solid #007aff;
+            outline-offset: 2px;
+        }
+        
+        /* Animation for success state */
+        .success-animation {
+            animation: successPulse 0.6s ease-out;
+        }
+        
+        @keyframes successPulse {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="statusIcon" class="icon pending" role="img" aria-label="Durum ikonu">⏳</div>
+        <h1>E-posta Doğrulama</h1>
+        <div id="loader" class="loader" role="status" aria-label="Yükleniyor"></div>
+        <div id="messageArea" class="message pending" role="alert" aria-live="polite">
+            <p>E-posta adresiniz doğrulanıyor, lütfen bekleyin...</p>
+        </div>
+        <a href="#" id="loginButton" class="button" style="display: none;" role="button">
+            Giriş Yap
+        </a>
+    </div>
+
+    <script src="verify_email.js"></script>
+</body>
+</html>
