@@ -12,7 +12,7 @@ const { CLIENT_URL, ADMIN_SECRET, WIP_SECRET } = require('./constants');
  * Standart kullanıcı kaydı.
  */
 const register = async (req, res) => {
-  const { username, email, password, nickname, ...otherData } = req.body;
+  const { username, email, password, nickname, invitationToken, ...otherData } = req.body;
   if (!username || !email || !password) {
     return Response.badRequest(res, 'Kullanıcı adı, e-posta ve şifre zorunludur.');
   }
@@ -26,6 +26,23 @@ const register = async (req, res) => {
 
     const existingUserByEmail = await prisma.user.findUnique({ where: { email } });
     if (existingUserByEmail) return Response.conflict(res, 'Bu e-posta adresi zaten kullanılıyor.');
+
+    // Davet token'ını kontrol et
+    let inviterId = null;
+    let invitationId = null;
+    let inviterUsername = null;
+
+    if (invitationToken) {
+      // Davet kontrolcüsünü import et
+      const { verifyInvitation } = require('../follow/invitation_controller');
+      const invitationResult = await verifyInvitation(invitationToken);
+      
+      if (invitationResult.valid) {
+        inviterId = invitationResult.inviterId;
+        invitationId = invitationResult.invitationId;
+        inviterUsername = invitationResult.inviterUsername;
+      }
+    }
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const birthDateObj = otherData.birthDate ? new Date(otherData.birthDate) : null;
@@ -42,6 +59,7 @@ const register = async (req, res) => {
         nickname: nickname || username,
         birthDate: birthDateObj,
         role: UserRole.USER,
+        invitedById: inviterId // Davet eden kullanıcı ID'si
       },
     });
 

@@ -8,6 +8,8 @@ const { authenticateToken } = require('../../middleware/authMiddleware');
 const profileRoutes = require('./profile_routes.js');
 const securityRoutes = require('./security_routes.js');
 const accountRoutes = require('./account_routes.js');
+const profileUploadRoutes = require('./profile_upload_routes.js');
+const usernameRoutes = require('./username_routes.js');
 
 // Bu modüldeki tüm rotalar için kimlik doğrulaması uygula
 // Not: security_routes içindeki verifyNewEmail bu kuralın dışında kalır çünkü kendi içinde middleware kullanmaz.
@@ -17,5 +19,7 @@ router.use(authenticateToken);
 router.use('/', profileRoutes);
 router.use('/', securityRoutes); // Bu, içindeki authenticateToken'ları tekrar uygular, zararı olmaz.
 router.use('/', accountRoutes);
+router.use('/', profileUploadRoutes);
+router.use('/', usernameRoutes);
 
 module.exports = router;

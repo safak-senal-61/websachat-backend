@@ -5,6 +5,7 @@ const requestsController = require('./requests_controller.js');
 const listingController = require('./listing_controller.js');
 const blockingController = require('./blocking_controller.js');
 const discoveryController = require('./discovery_controller.js');
+const invitationController = require('./invitation_controller.js');
 
 module.exports = {
   ...actionsController,
@@ -12,4 +13,5 @@ module.exports = {
   ...listingController,
   ...blockingController,
   ...discoveryController,
+  ...invitationController,
 };

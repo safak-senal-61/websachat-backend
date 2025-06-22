@@ -24,11 +24,11 @@ const streamRouter = require('./stream');
 const transactionRouter = require('./transaction');
 
 // WePlay tarzı uygulama için eklenen yeni rotalar
-const tournamentRouter = require('./tournament_routes');
-const achievementRouter = require('./achievement_routes');
-const matchmakingRouter = require('./matchmaking_routes');
-const subscriptionRouter = require('./subscription_routes');
-const gameServerRouter = require('./gameserver_routes');
+const tournamentRouter = require('./tournament');
+const achievementRouter = require('./achievement');
+const matchmakingRouter = require('./matchmaking');
+const subscriptionRouter = require('./subscription');
+const gameServerRouter = require('./gameserver');
 
 console.log('✅ Tüm rota modülleri ana birleştiriciye yükleniyor...');
 
