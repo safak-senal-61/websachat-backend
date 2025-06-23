@@ -3,8 +3,17 @@
 const { PrismaClient } = require('../../generated/prisma');
 const prisma = new PrismaClient();
 const Response = require('../../utils/responseHandler');
-const { ExpressAuth } = require('@auth/express');
 const authConfig = require('./authjs_config');
+
+// ExpressAuth'u dynamic import ile yükle
+let ExpressAuth;
+const loadExpressAuth = async () => {
+  if (!ExpressAuth) {
+    const authModule = await import('@auth/express');
+    ExpressAuth = authModule.ExpressAuth;
+  }
+  return ExpressAuth;
+};
 
 /**
  * Kullanıcının aktif oturumlarını listeler
@@ -13,8 +22,9 @@ const listSessions = async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Auth.js oturumlarını getir
-    const auth = await ExpressAuth(req, res, authConfig);
+    // ExpressAuth'u dynamic import ile yükle
+    const AuthClass = await loadExpressAuth();
+    const auth = await AuthClass(req, res, authConfig);
     const currentSession = await auth.getSession();
     
     // Veritabanından tüm oturumları getir
@@ -88,8 +98,9 @@ const terminateAllSessions = async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Mevcut oturumu bul
-    const auth = await ExpressAuth(req, res, authConfig);
+    // ExpressAuth'u dynamic import ile yükle
+    const AuthClass = await loadExpressAuth();
+    const auth = await AuthClass(req, res, authConfig);
     const currentSession = await auth.getSession();
     
     if (!currentSession) {

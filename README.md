@@ -439,3 +439,5 @@ SOFTWARE.
   <p>Made with ❤️ by the WebSaChat Team</p>
   <p>⭐ Star this repository if you find it helpful!</p>
 </div>
+
+rm -rf node_modules package-lock.json

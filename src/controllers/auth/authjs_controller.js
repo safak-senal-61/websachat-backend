@@ -1,6 +1,5 @@
 // src/controllers/auth/authjs_controller.js
 
-const { ExpressAuth } = require('@auth/express');
 const { PrismaClient } = require('../../generated/prisma');
 const prisma = new PrismaClient();
 const Response = require('../../utils/responseHandler');
@@ -8,9 +7,11 @@ const { sanitizeUser } = require('./utils');
 const authConfig = require('./authjs_config');
 const speakeasy = require('speakeasy');
 
-/**
- * Auth.js ile kimlik doğrulama işlemlerini yönetir
- */
+// ESM wrapper'ı import et
+const getAuthWrapper = async () => {
+  const wrapper = await import('../../utils/authWrapper.mjs');
+  return wrapper;
+};
 
 /**
  * Auth.js ile oturum başlatma
@@ -41,8 +42,9 @@ const signIn = async (req, res) => {
       });
     }
     
-    // Auth.js ile oturum başlat
-    const auth = await ExpressAuth(req, res, authConfig);
+    // Auth wrapper'ı kullan
+    const { createExpressAuth } = await getAuthWrapper();
+    const auth = await createExpressAuth(req, res, authConfig);
     const session = await auth.signIn('credentials', {
       email,
       password,
@@ -68,7 +70,8 @@ const signIn = async (req, res) => {
  */
 const signOut = async (req, res) => {
   try {
-    const auth = await ExpressAuth(req, res, authConfig);
+    const { createExpressAuth } = await getAuthWrapper();
+    const auth = await createExpressAuth(req, res, authConfig);
     await auth.signOut();
     return Response.ok(res, 'Çıkış başarılı.');
   } catch (error) {
@@ -82,7 +85,8 @@ const signOut = async (req, res) => {
  */
 const getSession = async (req, res) => {
   try {
-    const auth = await ExpressAuth(req, res, authConfig);
+    const { createExpressAuth } = await getAuthWrapper();
+    const auth = await createExpressAuth(req, res, authConfig);
     const session = await auth.getSession();
     
     if (!session) {
@@ -128,8 +132,9 @@ const verifyTwoFactor = async (req, res) => {
       return Response.unauthorized(res, 'Geçersiz 2FA kodu.');
     }
     
-    // Auth.js ile oturum başlat
-    const auth = await ExpressAuth(req, res, authConfig);
+    // Auth wrapper'ı kullan
+    const { createExpressAuth } = await getAuthWrapper();
+    const auth = await createExpressAuth(req, res, authConfig);
     const session = await auth.signIn('credentials', {
       userId: user.id,
       redirect: false,
