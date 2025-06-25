@@ -5,35 +5,59 @@ function initializeSignalingServer(io) {
 
     io.on('connection', (socket) => {
         console.log(`✅ Sinyal sunucusuna yeni bir kullanıcı bağlandı: ${socket.id}`);
+        
+        // Kullanıcının kimliğini ve ait olduğu odaları yönetmek için
+        // Gerçek bir uygulamada, bu bilgi bir veritabanından veya Redis'ten alınabilir.
+        const { userId } = socket.handshake.query;
+        console.log(`Bağlanan kullanıcı ID'si: ${userId}`);
 
         socket.on('join room', (roomID) => {
-            console.log(`Kullanıcı ${socket.id}, "${roomID}" odasına katılmaya çalışıyor.`);
+            console.log(`Kullanıcı ${socket.id} ("${userId}"), "${roomID}" odasına katılmaya çalışıyor.`);
+            socket.join(roomID); // Kullanıcıyı Socket.IO odasına ekle
 
             if (!rooms[roomID]) {
                 rooms[roomID] = [];
             }
 
-            // Sadece iki kişilik odalara izin ver
             if (rooms[roomID].length >= 2) {
                 socket.emit('room full');
                 console.log(`"${roomID}" odası dolu. Kullanıcı ${socket.id} reddedildi.`);
                 return;
             }
 
-            const otherUser = rooms[roomID][0]; // Odadaki (varsa) diğer kullanıcı
+            const otherUserSocketId = rooms[roomID][0];
             rooms[roomID].push(socket.id);
-            socket.join(roomID);
-
+            
             console.log(`Kullanıcı ${socket.id}, "${roomID}" odasına katıldı. Odadakiler:`, rooms[roomID]);
 
-            if (otherUser) {
-                console.log(`Eşleşme bulundu: ${socket.id} (yeni) <-> ${otherUser} (mevcut)`);
-                // Yeni kullanıcıya, odadaki mevcut kullanıcıyı bildir (bağlantıyı başlatması için)
-                socket.emit('other user', otherUser);
-                // Mevcut kullanıcıya, yeni bir kullanıcının katıldığını bildir
-                socket.to(otherUser).emit('user joined', { newUserID: socket.id });
+            if (otherUserSocketId) {
+                console.log(`Eşleşme bulundu: ${socket.id} (yeni) <-> ${otherUserSocketId} (mevcut)`);
+                socket.emit('other user', otherUserSocketId);
+                socket.to(otherUserSocketId).emit('user joined', { newUserID: socket.id });
             }
         });
+
+        // --- YENİ EKLENDİ: Yazıyor... (Typing Indicator) Olayları ---
+        
+        // Bir kullanıcı yazmaya başladığında bu olay tetiklenir
+        socket.on('typing_start', ({ conversationId }) => {
+            // Yayını sadece aynı odadaki diğer kullanıcılara gönder
+            socket.to(conversationId).emit('user_typing_start', {
+                conversationId,
+                userId: userId // Hangi kullanıcının yazdığı bilgisi
+            });
+        });
+
+        // Bir kullanıcı yazmayı bıraktığında bu olay tetiklenir
+        socket.on('typing_stop', ({ conversationId }) => {
+            // Yayını sadece aynı odadaki diğer kullanıcılara gönder
+            socket.to(conversationId).emit('user_typing_stop', {
+                conversationId,
+                userId: userId
+            });
+        });
+        
+        // --- YENİ KISIM SONU ---
 
         socket.on('offer', (payload) => {
             console.log(`'offer' sinyali ${payload.caller} -> ${payload.target}`);

@@ -5,6 +5,8 @@ const prisma = new PrismaClient();
 const Response = require('../../utils/responseHandler');
 const { parseJsonArrayField, isUserRoomModerator } = require('./utils.js');
 
+// ... getRoomMessages fonksiyonu aynı kalır ...
+
 const getRoomMessages = async (req, res) => {
     const { roomId } = req.params;
     const { page = 1, limit = 20 } = req.query;
@@ -35,6 +37,7 @@ const getRoomMessages = async (req, res) => {
     }
 };
 
+
 const postMessageToRoom = async (req, res) => {
     const { roomId } = req.params;
     const { content, messageType = "TEXT" } = req.body;
@@ -50,9 +53,10 @@ const postMessageToRoom = async (req, res) => {
             return Response.notFound(res, "Mesaj gönderilecek oda bulunamadı veya aktif değil.");
         }
 
+        const participants = parseJsonArrayField(room.activeParticipants);
         const isAllowed = room.ownerId === senderId ||
             (await isUserRoomModerator(senderId, roomId)) ||
-            parseJsonArrayField(room.activeParticipants).includes(senderId);
+            participants.includes(senderId);
 
         if (!isAllowed) {
             return Response.forbidden(res, "Bu odaya mesaj gönderme yetkiniz yok.");
@@ -63,8 +67,11 @@ const postMessageToRoom = async (req, res) => {
             include: { sender: { select: { id: true, username: true, nickname: true, profilePictureUrl: true } } }
         });
 
-        // WebSocket ile yeni mesajı yayınla (TODO)
-        // io.to(roomId).emit('new_message', newMessage);
+        // --- YENİ EKLENDİ: WebSocket ile yeni oda mesajını yayınla ---
+        const io = req.app.get('io');
+        // 'roomId' aynı zamanda Socket.IO odasının adıdır.
+        io.to(roomId).emit('new_room_message', newMessage);
+        // --- YENİ KISIM SONU ---
 
         return Response.created(res, "Mesaj başarıyla gönderildi.", { mesaj: newMessage });
     } catch (error) {

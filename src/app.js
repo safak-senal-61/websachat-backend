@@ -22,10 +22,11 @@ console.log('DEBUG: app.js - Express uygulaması yapılandırılıyor...');
 
 // --- CORS Yapılandırması ---
 const allowedOrigins = [
-    'https://3000-firebase-websachat-backend-1748272624869.cluster-6vyo4gb53jczovun3dxslzjahs.cloudworkstations.dev',
+    'https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev/auth/google/callback',
     'https://3000-firebase-chatgit-1749503120290.cluster-l6vkdperq5ebaqo3qy4ksvoqom.cloudworkstations.dev',
     'https://websachat-web-610000.web.app',
     'http://localhost:3000',
+    'https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev',
     'http://localhost:3001',
     'https://d033c711-5834-4f77-868a-94ae778c35f1-00-33t75erjtazez.janeway.replit.dev',
     'https://sandbox-api.iyzipay.com',

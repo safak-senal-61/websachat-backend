@@ -1,8 +1,133 @@
-// src/controllers/auth/device_controller.js
-
 const { PrismaClient } = require('../../generated/prisma');
 const prisma = new PrismaClient();
 const Response = require('../../utils/responseHandler');
+const geoip = require('geoip-lite');
+const jwt = require('jsonwebtoken');
+
+/**
+ * Yeni bir güvenilir cihaz ekler. IP, User-Agent ve coğrafi konum bilgilerini backend'de işler.
+ */
+const addDevice = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { deviceName, deviceType, location: frontendLocation, userAgent: frontendUserAgent } = req.body;
+
+    if (!deviceName) {
+      return Response.badRequest(res, 'Cihaz adı gereklidir.');
+    }
+
+    // IP adresini al (proxy'ler için X-Forwarded-For header'ını da kontrol et)
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || 
+                     req.headers['x-real-ip'] || 
+                     req.connection.remoteAddress || 
+                     req.socket.remoteAddress ||
+                     (req.connection.socket ? req.connection.socket.remoteAddress : null) ||
+                     req.ip;
+
+    // User-Agent bilgisini al (frontend'den gelen varsa onu kullan, yoksa header'dan al)
+    const userAgent = frontendUserAgent || req.headers['user-agent'] || 'Unknown';
+    
+    // Konum bilgisini belirle
+    let location = 'Bilinmeyen Konum';
+    
+    // Önce frontend'den gelen konum bilgisini kontrol et
+    if (frontendLocation && frontendLocation !== 'Bilinmeyen Konum') {
+      location = frontendLocation;
+      console.log('Konum bilgisi frontend\'den alındı:', location);
+    } else {
+      // Backend'de IP'den konum bilgisini çıkar
+      try {
+        // IPv6 mapped IPv4 adreslerini temizle
+        let cleanIP = ipAddress;
+        if (ipAddress && ipAddress.startsWith('::ffff:')) {
+          cleanIP = ipAddress.substring(7);
+        }
+        
+        const geo = geoip.lookup(cleanIP);
+        if (geo) {
+          location = geo.city ? `${geo.city}, ${geo.country}` : geo.country;
+          console.log('Konum bilgisi backend\'de IP\'den alındı:', location, 'IP:', cleanIP);
+        } else {
+          console.log('IP adresinden konum bilgisi alınamadı:', cleanIP);
+        }
+      } catch (error) {
+        console.error('IP konum çözümleme hatası:', error);
+      }
+    }
+
+    // Aynı cihazın zaten kayıtlı olup olmadığını kontrol et
+    const existingDevice = await prisma.trustedDevice.findFirst({
+      where: {
+        userId,
+        OR: [
+          { userAgent },
+          { 
+            AND: [
+              { deviceName },
+              { deviceType: deviceType || 'other' }
+            ]
+          }
+        ]
+      }
+    });
+
+    if (existingDevice) {
+      // Mevcut cihazı güncelle
+      const updatedDevice = await prisma.trustedDevice.update({
+        where: { id: existingDevice.id },
+        data: {
+          ipAddress,
+          location,
+          lastUsedAt: new Date(),
+          isCurrentDevice: true
+        }
+      });
+      
+      // Diğer cihazların 'isCurrentDevice' flag'ini kaldır
+      await prisma.trustedDevice.updateMany({
+        where: { 
+          userId: userId,
+          id: { not: existingDevice.id }
+        },
+        data: { isCurrentDevice: false }
+      });
+      
+      return Response.ok(res, 'Mevcut cihaz güncellendi.', { device: updatedDevice });
+    }
+
+    // Mevcut diğer cihazların 'isCurrentDevice' flag'ini kaldır
+    await prisma.trustedDevice.updateMany({
+      where: { userId: userId },
+      data: { isCurrentDevice: false }
+    });
+
+    // Yeni cihazı veritabanına ekle
+    const device = await prisma.trustedDevice.create({
+      data: {
+        userId,
+        deviceName,
+        deviceType: deviceType || 'other',
+        ipAddress,
+        userAgent,
+        location,
+        isCurrentDevice: true,
+      },
+    });
+
+    console.log('Yeni cihaz eklendi:', {
+      deviceName,
+      deviceType: deviceType || 'other',
+      ipAddress,
+      location,
+      userAgent: userAgent.substring(0, 50) + '...'
+    });
+
+    return Response.created(res, 'Güvenilir cihaz başarıyla eklendi.', { device });
+  } catch (error) {
+    console.error('Cihaz ekleme hatası:', error);
+    return Response.internalServerError(res, 'Cihaz eklenemedi.');
+  }
+};
 
 /**
  * Kullanıcının güvenilir cihazlarını listeler
@@ -11,7 +136,6 @@ const listDevices = async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Kullanıcının cihazlarını getir
     const devices = await prisma.trustedDevice.findMany({
       where: { userId },
       select: {
@@ -19,9 +143,11 @@ const listDevices = async (req, res) => {
         deviceName: true,
         deviceType: true,
         ipAddress: true,
+        location: true,
         lastUsedAt: true,
         createdAt: true,
         isCurrentDevice: true,
+        userAgent: true,
       },
       orderBy: {
         lastUsedAt: 'desc',
@@ -36,43 +162,7 @@ const listDevices = async (req, res) => {
 };
 
 /**
- * Yeni bir güvenilir cihaz ekler
- */
-const addDevice = async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { deviceName, deviceType } = req.body;
-    
-    if (!deviceName) {
-      return Response.badRequest(res, 'Cihaz adı gereklidir.');
-    }
-    
-    // Cihaz bilgilerini al
-    const ipAddress = req.ip;
-    const userAgent = req.headers['user-agent'];
-    
-    // Cihazı veritabanına ekle
-    const device = await prisma.trustedDevice.create({
-      data: {
-        userId,
-        deviceName,
-        deviceType: deviceType || 'unknown',
-        ipAddress,
-        userAgent,
-        isCurrentDevice: true,
-        lastUsedAt: new Date(),
-      },
-    });
-    
-    return Response.created(res, 'Güvenilir cihaz başarıyla eklendi.', { device });
-  } catch (error) {
-    console.error('Cihaz ekleme hatası:', error);
-    return Response.internalServerError(res, 'Cihaz eklenemedi.');
-  }
-};
-
-/**
- * Güvenilir cihazı siler
+ * Güvenilir cihazı siler ve o cihazdan oturum sonlandırır
  */
 const removeDevice = async (req, res) => {
   try {
@@ -83,19 +173,16 @@ const removeDevice = async (req, res) => {
       return Response.badRequest(res, 'Cihaz ID gereklidir.');
     }
     
-    // Cihazın kullanıcıya ait olup olmadığını kontrol et
-    const device = await prisma.trustedDevice.findUnique({
-      where: { id: deviceId },
-      select: { userId: true, isCurrentDevice: true },
+    const device = await prisma.trustedDevice.findFirst({
+      where: { id: deviceId, userId: userId },
     });
     
-    if (!device || device.userId !== userId) {
-      return Response.forbidden(res, 'Bu cihazı silme yetkiniz yok.');
+    if (!device) {
+      return Response.forbidden(res, 'Bu cihazı silme yetkiniz yok veya cihaz bulunamadı.');
     }
     
-    // Mevcut cihazı silmeye çalışıyorsa uyarı ver
     if (device.isCurrentDevice) {
-      return Response.badRequest(res, 'Şu anda kullandığınız cihazı silemezsiniz.');
+      return Response.badRequest(res, 'Şu anda kullandığınız aktif oturum cihazını silemezsiniz.');
     }
     
     // Cihazı sil
@@ -103,7 +190,23 @@ const removeDevice = async (req, res) => {
       where: { id: deviceId },
     });
     
-    return Response.ok(res, 'Güvenilir cihaz başarıyla silindi.');
+    // O cihazdan gelen tüm aktif oturumları sonlandır
+    // Bu işlem için refresh token'ları da silebiliriz
+    try {
+      await prisma.refreshToken.deleteMany({
+        where: {
+          userId: userId,
+          // Eğer refresh token tablosunda device bilgisi varsa
+          // deviceId: deviceId veya userAgent: device.userAgent
+        }
+      });
+      console.log(`Cihaz silindi ve oturumlar sonlandırıldı: ${device.deviceName}`);
+    } catch (tokenError) {
+      console.error('Oturum sonlandırma hatası:', tokenError);
+      // Cihaz silinmiş olsa bile devam et
+    }
+    
+    return Response.ok(res, 'Güvenilir cihaz başarıyla silindi ve oturumlar sonlandırıldı.');
   } catch (error) {
     console.error('Cihaz silme hatası:', error);
     return Response.internalServerError(res, 'Cihaz silinemedi.');
@@ -123,17 +226,14 @@ const updateDeviceName = async (req, res) => {
       return Response.badRequest(res, 'Cihaz ID ve yeni cihaz adı gereklidir.');
     }
     
-    // Cihazın kullanıcıya ait olup olmadığını kontrol et
-    const device = await prisma.trustedDevice.findUnique({
-      where: { id: deviceId },
-      select: { userId: true },
+    const device = await prisma.trustedDevice.findFirst({
+      where: { id: deviceId, userId: userId },
     });
     
-    if (!device || device.userId !== userId) {
-      return Response.forbidden(res, 'Bu cihazı güncelleme yetkiniz yok.');
+    if (!device) {
+      return Response.forbidden(res, 'Bu cihazı güncelleme yetkiniz yok veya cihaz bulunamadı.');
     }
     
-    // Cihaz adını güncelle
     const updatedDevice = await prisma.trustedDevice.update({
       where: { id: deviceId },
       data: { deviceName },
@@ -147,36 +247,44 @@ const updateDeviceName = async (req, res) => {
 };
 
 /**
- * Mevcut cihaz hariç tüm cihazları siler
+ * Mevcut cihaz hariç tüm cihazları siler ve oturumları sonlandırır
  */
 const removeAllDevices = async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Mevcut cihazı bul
-    const currentDevice = await prisma.trustedDevice.findFirst({
+    // Silinecek cihazları al
+    const devicesToDelete = await prisma.trustedDevice.findMany({
       where: {
         userId,
-        isCurrentDevice: true,
+        isCurrentDevice: false,
       },
-      select: { id: true },
+      select: { id: true, deviceName: true, userAgent: true }
     });
     
-    if (!currentDevice) {
-      return Response.badRequest(res, 'Mevcut cihaz bulunamadı.');
+    // Cihazları sil
+    const deleteResult = await prisma.trustedDevice.deleteMany({
+      where: {
+        userId,
+        isCurrentDevice: false,
+      },
+    });
+    
+    // Silinen cihazlardan gelen tüm aktif oturumları sonlandır
+    try {
+      await prisma.refreshToken.deleteMany({
+        where: {
+          userId: userId,
+          // Eğer refresh token tablosunda device bilgisi varsa
+          // deviceId: { in: devicesToDelete.map(d => d.id) }
+        }
+      });
+      console.log(`${deleteResult.count} cihaz silindi ve oturumlar sonlandırıldı`);
+    } catch (tokenError) {
+      console.error('Toplu oturum sonlandırma hatası:', tokenError);
     }
     
-    // Mevcut cihaz hariç tüm cihazları sil
-    await prisma.trustedDevice.deleteMany({
-      where: {
-        userId,
-        NOT: {
-          id: currentDevice.id,
-        },
-      },
-    });
-    
-    return Response.ok(res, 'Diğer tüm cihazlar başarıyla silindi.');
+    return Response.ok(res, `${deleteResult.count} cihaz başarıyla silindi ve oturumlar sonlandırıldı.`);
   } catch (error) {
     console.error('Tüm cihazları silme hatası:', error);
     return Response.internalServerError(res, 'Cihazlar silinemedi.');

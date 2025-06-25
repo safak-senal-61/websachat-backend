@@ -1,7 +1,7 @@
 
         // Configuration
         const CONFIG = {
-            API_BASE_URL: "https://3000-firebase-websachat-backend-1748272624869.cluster-6vyo4gb53jczovun3dxslzjahs.cloudworkstations.dev",
+            API_BASE_URL: "https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev",
             LOGIN_PAGE_URL: "/login.html",
             RETRY_ATTEMPTS: 3,
             RETRY_DELAY: 1000,

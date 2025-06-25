@@ -1,5 +1,3 @@
-// src/routes/auth/device_routes.js
-
 const express = require('express');
 const router = express.Router();
 const deviceController = require('../../controllers/auth/device_controller');
@@ -10,7 +8,7 @@ const { authenticateToken } = require('../../middleware/authMiddleware');
  * /auth/devices:
  *   get:
  *     summary: "Kullanıcının güvenilir cihazlarını listeler"
- *     tags: [Auth]
+ *     tags: [Auth, Devices]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -18,15 +16,9 @@ const { authenticateToken } = require('../../middleware/authMiddleware');
  *         description: "Güvenilir cihazlar başarıyla getirildi"
  *       '401':
  *         description: "Yetkilendirme hatası"
- */
-router.get('/devices', authenticateToken, deviceController.listDevices);
-
-/**
- * @swagger
- * /auth/devices:
  *   post:
  *     summary: "Yeni bir güvenilir cihaz ekler"
- *     tags: [Auth]
+ *     tags: [Auth, Devices]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -40,7 +32,7 @@ router.get('/devices', authenticateToken, deviceController.listDevices);
  *             properties:
  *               deviceName:
  *                 type: string
- *                 description: "Cihaz için tanımlayıcı isim"
+ *                 description: "Cihaz için tanımlayıcı isim (örn: 'Chrome on Windows')"
  *               deviceType:
  *                 type: string
  *                 enum: [mobile, desktop, tablet, other]
@@ -51,6 +43,7 @@ router.get('/devices', authenticateToken, deviceController.listDevices);
  *       '401':
  *         description: "Yetkilendirme hatası"
  */
+router.get('/devices', authenticateToken, deviceController.listDevices);
 router.post('/devices', authenticateToken, deviceController.addDevice);
 
 /**
@@ -58,7 +51,7 @@ router.post('/devices', authenticateToken, deviceController.addDevice);
  * /auth/devices/{deviceId}:
  *   delete:
  *     summary: "Belirli bir güvenilir cihazı siler"
- *     tags: [Auth]
+ *     tags: [Auth, Devices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -76,15 +69,9 @@ router.post('/devices', authenticateToken, deviceController.addDevice);
  *         description: "Yetkilendirme hatası"
  *       '403':
  *         description: "Bu cihazı silme yetkiniz yok"
- */
-router.delete('/devices/:deviceId', authenticateToken, deviceController.removeDevice);
-
-/**
- * @swagger
- * /auth/devices/{deviceId}:
  *   put:
  *     summary: "Belirli bir cihazın adını günceller"
- *     tags: [Auth]
+ *     tags: [Auth, Devices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -113,6 +100,7 @@ router.delete('/devices/:deviceId', authenticateToken, deviceController.removeDe
  *       '403':
  *         description: "Bu cihazı güncelleme yetkiniz yok"
  */
+router.delete('/devices/:deviceId', authenticateToken, deviceController.removeDevice);
 router.put('/devices/:deviceId', authenticateToken, deviceController.updateDeviceName);
 
 /**
@@ -120,7 +108,7 @@ router.put('/devices/:deviceId', authenticateToken, deviceController.updateDevic
  * /auth/devices/all:
  *   delete:
  *     summary: "Mevcut cihaz hariç tüm cihazları siler"
- *     tags: [Auth]
+ *     tags: [Auth, Devices]
  *     security:
  *       - bearerAuth: []
  *     responses:

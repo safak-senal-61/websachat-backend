@@ -1,4 +1,4 @@
-// src/controllers/auth/register.controller.js
+// src/controllers/auth/register_controller.js
 
 const bcrypt = require('bcryptjs');
 const { PrismaClient, UserRole } = require('../../generated/prisma');
@@ -50,17 +50,26 @@ const register = async (req, res) => {
       return Response.badRequest(res, 'Geçersiz doğum tarihi formatı.');
     }
 
+    // Prisma'ya gönderilecek veri objesini hazırla
+    const data = {
+      ...otherData,
+      username,
+      email,
+      password: hashedPassword,
+      nickname: nickname || username,
+      birthDate: birthDateObj,
+      role: UserRole.USER,
+    };
+
+    // Eğer bir davet eden varsa, ilişkiyi 'connect' ile kur.
+    if (inviterId) {
+      data.invitedBy = {
+        connect: { id: inviterId }
+      };
+    }
+
     const newUser = await prisma.user.create({
-      data: {
-        ...otherData,
-        username,
-        email,
-        password: hashedPassword,
-        nickname: nickname || username,
-        birthDate: birthDateObj,
-        role: UserRole.USER,
-        invitedById: inviterId // Davet eden kullanıcı ID'si
-      },
+      data: data,
     });
 
     const verificationToken = generateEmailVerificationToken(newUser.id, newUser.email);
@@ -88,6 +97,18 @@ const registerAdmin = async (req, res) => {
   if (!username || !email || !password) return Response.badRequest(res, 'Kullanıcı adı, e-posta ve şifre zorunludur.');
 
   try {
+    // --- EKSİK OLAN KONTROL BURAYA EKLENDİ ---
+    const existingUserByUsername = await prisma.user.findUnique({ where: { username } });
+    if (existingUserByUsername) {
+      return Response.conflict(res, 'Bu kullanıcı adı zaten alınmış.');
+    }
+
+    const existingUserByEmail = await prisma.user.findUnique({ where: { email } });
+    if (existingUserByEmail) {
+      return Response.conflict(res, 'Bu e-posta adresi zaten kullanılıyor.');
+    }
+    // --- KONTROL SONU ---
+
     const hashedPassword = await bcrypt.hash(password, 12);
     const newAdmin = await prisma.user.create({
       data: {
@@ -105,10 +126,12 @@ const registerAdmin = async (req, res) => {
     });
   } catch (error) {
     console.error('Admin kaydı sırasında hata:', error);
+    // Bu catch bloğu hala bir güvenlik katmanı olarak kalabilir, ancak yukarıdaki kontroller hatayı daha erken yakalayacaktır.
     if (error.code === 'P2002') return Response.conflict(res, 'Kullanıcı adı veya e-posta zaten mevcut.');
     return Response.internalServerError(res, 'Admin kaydı sırasında bir hata oluştu.');
   }
 };
+
 
 /**
  * WIP kullanıcı kaydı. (Work In Progress)

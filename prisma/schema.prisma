@@ -161,10 +161,12 @@ model User {
   accountStatus           UserAccountStatus    @default(ACTIVE)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
-
+  invitedUsers User[] @relation("Invitations")
+  invitedBy   User? @relation("Invitations", fields: [invitedByForeignKey], references: [id])
+  invitedByForeignKey String? @map("invitedById") // Veritabanındaki kolon adını 'invitedById' yapar
   // YENİ ROL ALANI
   role                    UserRole  @default(USER) // Varsayılan rol USER
-
+  trustedDevices TrustedDevice[]
   transactions            Transaction[]
   sentMessages            Message[]     @relation("SentMessages")
   receivedMessages        Message[]     @relation("ReceivedMessages")
@@ -524,6 +526,24 @@ model OneSignalPlayer {
   deviceInfo  String?  // Cihaz bilgisi (opsiyonel)
   lastSeen    DateTime @default(now()) @updatedAt
   createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+
+model TrustedDevice {
+  id              String   @id @default(cuid())
+  userId          String
+  deviceName      String   // Cihaza verilen isim (örn: "Evdeki PC")
+  deviceType      String?  // Cihaz tipi (desktop, mobile, tablet)
+  ipAddress       String?  // Cihazın IP adresi
+  userAgent       String?  // Tarayıcı/cihaz bilgisi
+  location        String?  // Coğrafi konum (örn: "Trabzon, TR")
+  isCurrentDevice Boolean  @default(false)
+  lastUsedAt      DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

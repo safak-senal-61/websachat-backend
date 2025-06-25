@@ -1,6 +1,6 @@
 // Configuration - Replace with your actual backend URL
 const CONFIG = {
-    API_BASE_URL: "https://3000-firebase-websachat-backend-1748272624869.cluster-6vyo4gb53jczovun3dxslzjahs.cloudworkstations.dev",
+    API_BASE_URL: "https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev/auth/google/callback",
     LOGIN_PAGE_URL: "https://3000-firebase-websachat-web-1748782524865.cluster-3gc7bglotjgwuxlqpiut7yyqt4.cloudworkstations.dev/login", // <<< GÜNCELLENDİ
     RETRY_ATTEMPTS: 3,
     RETRY_DELAY: 1000
