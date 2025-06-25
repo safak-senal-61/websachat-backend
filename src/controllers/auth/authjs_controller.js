@@ -6,11 +6,12 @@ const Response = require('../../utils/responseHandler');
 const { sanitizeUser } = require('./utils');
 const authConfig = require('./authjs_config');
 const speakeasy = require('speakeasy');
+const bcrypt = require('bcrypt');
 
-// ESM wrapper'ı import et
-const getAuthWrapper = async () => {
+// ESM wrapper'ını dinamik olarak import eden yardımcı fonksiyon
+const getExpressAuth = async () => {
   const wrapper = await import('../../utils/authWrapper.mjs');
-  return wrapper;
+  return wrapper.default; // wrapper.mjs'den varsayılan olarak ihraç edilen ExpressAuth fonksiyonunu al
 };
 
 /**
@@ -18,13 +19,12 @@ const getAuthWrapper = async () => {
  */
 const signIn = async (req, res) => {
   try {
-    const { email, password, provider } = req.body;
+    const { email, password } = req.body;
     
     if (!email || !password) {
       return Response.badRequest(res, 'E-posta ve şifre zorunludur.');
     }
     
-    // Kullanıcıyı veritabanında ara
     const user = await prisma.user.findUnique({
       where: { email },
     });
@@ -33,7 +33,13 @@ const signIn = async (req, res) => {
       return Response.unauthorized(res, 'Kullanıcı bulunamadı.');
     }
     
-    // 2FA kontrolü
+    // Şifre doğrulama
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    
+    if (!isValidPassword) {
+      return Response.unauthorized(res, 'Geçersiz şifre.');
+    }
+    
     if (user.twoFactorEnabled) {
       return Response.ok(res, 'İki faktörlü doğrulama gerekli.', {
         twoFactorRequired: true,
@@ -42,23 +48,17 @@ const signIn = async (req, res) => {
       });
     }
     
-    // Auth wrapper'ı kullan
-    const { createExpressAuth } = await getAuthWrapper();
-    const auth = await createExpressAuth(req, res, authConfig);
-    const session = await auth.signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    // Auth.js session oluşturma
+    // Request'i Auth.js için hazırla
+    req.body = {
+      ...req.body,
+      userId: user.id,
+      verified: true
+    };
     
-    if (!session) {
-      return Response.unauthorized(res, 'Giriş başarısız.');
-    }
+    const ExpressAuth = await getExpressAuth();
+    return ExpressAuth(req, res, authConfig);
     
-    return Response.ok(res, 'Giriş başarılı.', {
-      user: sanitizeUser(user),
-      session
-    });
   } catch (error) {
     console.error('Auth.js giriş hatası:', error);
     return Response.internalServerError(res, 'Giriş sırasında bir hata oluştu.');
@@ -70,9 +70,21 @@ const signIn = async (req, res) => {
  */
 const signOut = async (req, res) => {
   try {
-    const { createExpressAuth } = await getAuthWrapper();
-    const auth = await createExpressAuth(req, res, authConfig);
-    await auth.signOut();
+    const ExpressAuth = await getExpressAuth();
+    
+    // Çıkış için özel bir endpoint oluştur
+    const originalUrl = req.url;
+    const originalMethod = req.method;
+    
+    req.url = '/auth/signout';
+    req.method = 'POST';
+    
+    const result = await ExpressAuth(req, res, authConfig);
+    
+    // Orijinal değerleri geri yükle
+    req.url = originalUrl;
+    req.method = originalMethod;
+    
     return Response.ok(res, 'Çıkış başarılı.');
   } catch (error) {
     console.error('Auth.js çıkış hatası:', error);
@@ -85,15 +97,35 @@ const signOut = async (req, res) => {
  */
 const getSession = async (req, res) => {
   try {
-    const { createExpressAuth } = await getAuthWrapper();
-    const auth = await createExpressAuth(req, res, authConfig);
-    const session = await auth.getSession();
+    const ExpressAuth = await getExpressAuth();
     
-    if (!session) {
+    // Session için özel endpoint
+    const originalUrl = req.url;
+    const originalMethod = req.method;
+    
+    req.url = '/auth/session';
+    req.method = 'GET';
+    
+    // Response'u yakalamak için custom response object
+    let sessionData = null;
+    const originalJson = res.json;
+    res.json = function(data) {
+      sessionData = data;
+      return originalJson.call(this, data);
+    };
+    
+    await ExpressAuth(req, res, authConfig);
+    
+    // Orijinal değerleri geri yükle
+    req.url = originalUrl;
+    req.method = originalMethod;
+    res.json = originalJson;
+    
+    if (!sessionData) {
       return Response.unauthorized(res, 'Oturum bulunamadı.');
     }
     
-    return Response.ok(res, 'Oturum bilgileri başarıyla getirildi.', { session });
+    return Response.ok(res, 'Oturum bilgileri başarıyla getirildi.', { session: sessionData });
   } catch (error) {
     console.error('Auth.js oturum bilgisi hatası:', error);
     return Response.internalServerError(res, 'Oturum bilgileri getirilirken bir hata oluştu.');
@@ -111,7 +143,6 @@ const verifyTwoFactor = async (req, res) => {
       return Response.badRequest(res, 'Kullanıcı ID ve 2FA kodu zorunludur.');
     }
     
-    // Kullanıcıyı veritabanında ara
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
@@ -120,7 +151,6 @@ const verifyTwoFactor = async (req, res) => {
       return Response.unauthorized(res, 'Kullanıcı bulunamadı veya 2FA etkin değil.');
     }
     
-    // 2FA kodunu doğrula
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
       encoding: 'base32',
@@ -132,31 +162,145 @@ const verifyTwoFactor = async (req, res) => {
       return Response.unauthorized(res, 'Geçersiz 2FA kodu.');
     }
     
-    // Auth wrapper'ı kullan
-    const { createExpressAuth } = await getAuthWrapper();
-    const auth = await createExpressAuth(req, res, authConfig);
-    const session = await auth.signIn('credentials', {
+    // 2FA doğrulandıktan sonra session oluştur
+    req.body = {
+      ...req.body,
       userId: user.id,
-      redirect: false,
-    });
+      verified: true,
+      twoFactorVerified: true
+    };
     
-    if (!session) {
-      return Response.unauthorized(res, 'Giriş başarısız.');
-    }
+    const ExpressAuth = await getExpressAuth();
+    return ExpressAuth(req, res, authConfig);
     
-    return Response.ok(res, 'İki faktörlü doğrulama başarılı.', {
-      user: sanitizeUser(user),
-      session
-    });
   } catch (error) {
     console.error('2FA doğrulama hatası:', error);
     return Response.internalServerError(res, '2FA doğrulama sırasında bir hata oluştu.');
   }
 };
 
+/**
+ * Manuel JWT tabanlı giriş (alternatif yaklaşım)
+ */
+const signInWithJWT = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return Response.badRequest(res, 'E-posta ve şifre zorunludur.');
+    }
+    
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+    
+    if (!user) {
+      return Response.unauthorized(res, 'Kullanıcı bulunamadı.');
+    }
+    
+    // Şifre doğrulama
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    
+    if (!isValidPassword) {
+      return Response.unauthorized(res, 'Geçersiz şifre.');
+    }
+    
+    if (user.twoFactorEnabled) {
+      return Response.ok(res, 'İki faktörlü doğrulama gerekli.', {
+        twoFactorRequired: true,
+        userId: user.id,
+        email: user.email
+      });
+    }
+    
+    // JWT token oluştur
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
+        email: user.email,
+        iat: Math.floor(Date.now() / 1000)
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '24h' }
+    );
+    
+    // Cookie'ye kaydet
+    res.cookie('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000 // 24 saat
+    });
+    
+    return Response.ok(res, 'Giriş başarılı.', {
+      user: sanitizeUser(user),
+      token
+    });
+    
+  } catch (error) {
+    console.error('JWT giriş hatası:', error);
+    return Response.internalServerError(res, 'Giriş sırasında bir hata oluştu.');
+  }
+};
+
+/**
+ * JWT tabanlı çıkış
+ */
+const signOutWithJWT = async (req, res) => {
+  try {
+    // Cookie'yi temizle
+    res.clearCookie('auth-token');
+    
+    return Response.ok(res, 'Çıkış başarılı.');
+  } catch (error) {
+    console.error('JWT çıkış hatası:', error);
+    return Response.internalServerError(res, 'Çıkış sırasında bir hata oluştu.');
+  }
+};
+
+/**
+ * JWT tabanlı session kontrolü
+ */
+const getSessionWithJWT = async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const token = req.cookies['auth-token'] || req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+      return Response.unauthorized(res, 'Token bulunamadı.');
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+    });
+    
+    if (!user) {
+      return Response.unauthorized(res, 'Kullanıcı bulunamadı.');
+    }
+    
+    return Response.ok(res, 'Oturum bilgileri başarıyla getirildi.', {
+      user: sanitizeUser(user),
+      token
+    });
+    
+  } catch (error) {
+    console.error('JWT session hatası:', error);
+    return Response.unauthorized(res, 'Geçersiz token.');
+  }
+};
+
 module.exports = {
+  // Auth.js tabanlı fonksiyonlar
   signIn,
   signOut,
   getSession,
-  verifyTwoFactor
+  verifyTwoFactor,
+  
+  // JWT tabanlı alternatif fonksiyonlar
+  signInWithJWT,
+  signOutWithJWT,
+  getSessionWithJWT
 };

@@ -31,7 +31,15 @@ exports.markMessageAsRead = async (req, res) => {
             data: { readStatus: currentReadStatus }
         });
         
-        // TODO: WebSocket ile okundu bilgisi gönder
+        // WebSocket ile okundu bilgisini ilgili sohbete yayınla
+        const io = req.app.get('io');
+        io.to(message.conversationId).emit('message_read', {
+            messageId: messageId,
+            conversationId: message.conversationId,
+            readBy: userId,
+            readAt: currentReadStatus[userId]
+        });
+
         return Response.ok(res, "Mesaj okundu olarak işaretlendi.");
     } catch (error) {
         console.error(`Mesaj okundu işaretleme hatası:`, error);
@@ -75,10 +83,17 @@ exports.reactToMessage = async (req, res) => {
         const updatedMessage = await prisma.message.update({
             where: { id: messageId },
             data: { reactions: reactions },
-            select: { reactions: true }
+            select: { reactions: true, conversationId: true } // conversationId'yi de al
         });
 
-        // TODO: WebSocket ile reaksiyon güncellemesini yayınla
+        // WebSocket ile reaksiyon güncellemesini yayınla
+        const io = req.app.get('io');
+        io.to(updatedMessage.conversationId).emit('reaction_update', {
+            messageId: messageId,
+            conversationId: updatedMessage.conversationId,
+            reactions: updatedMessage.reactions
+        });
+
         return Response.ok(res, "Mesaja reaksiyon işlendi.", { reaksiyonlar: updatedMessage.reactions });
     } catch (error) {
         console.error("Mesaja reaksiyon verme hatası:", error);

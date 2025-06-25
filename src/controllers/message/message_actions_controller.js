@@ -46,15 +46,16 @@ exports.createMessage = async (req, res) => {
     }
 
     try {
-        // Yetkilendirme ve doğrulama mantığı...
-        // ...
+        if (!await canUserAccessConversation(senderId, conversationId)) {
+            return Response.forbidden(res, "Bu sohbete mesaj gönderme yetkiniz yok.");
+        }
 
         const newMessage = await prisma.message.create({
             data: {
                 conversationId,
                 senderId,
                 receiverId: receiverId || null,
-                roomId: receiverId ? null : conversationId,
+                roomId: conversationId.startsWith('c') ? conversationId : null,
                 messageType,
                 content: content || null,
                 giftId: messageType === 'GIFT' ? giftId : null,
@@ -63,10 +64,24 @@ exports.createMessage = async (req, res) => {
             },
             include: {
                 sender: { select: { id: true, username: true, nickname: true, profilePictureUrl: true } },
+                gift: true,
+                repliedToMessage: {
+                    include: { sender: { select: { id: true, username: true, nickname: true } } }
+                }
             }
         });
 
-        // TODO: WebSocket ile yeni mesajı yayınla
+        // WebSocket ile yeni mesajı ilgili odaya (sohbete) yayınla
+        const io = req.app.get('io');
+        io.to(conversationId).emit('new_message', newMessage);
+
+        // Kullanıcı yazmayı bıraktığı için "yazıyor..." göstergesini durdur
+        io.to(conversationId).emit('user_typing_stop', {
+            userId: senderId,
+            username: req.user.username,
+            conversationId: conversationId,
+        });
+
         return Response.created(res, "Mesaj başarıyla gönderildi.", { mesaj: newMessage });
     } catch (error) {
         console.error(`Mesaj gönderme hatası:`, error);
@@ -74,7 +89,6 @@ exports.createMessage = async (req, res) => {
     }
 };
 
-// EKSİK OLAN FONKSİYON EKLENDİ
 exports.updateMessage = async (req, res) => {
     const { messageId } = req.params;
     const { content } = req.body;
@@ -90,37 +104,31 @@ exports.updateMessage = async (req, res) => {
             return Response.notFound(res, "Güncellenecek mesaj bulunamadı.");
         }
 
-        // Sadece mesajı gönderen kişi mesajını güncelleyebilir.
         if (message.senderId !== userId) {
             return Response.forbidden(res, "Bu mesajı güncelleme yetkiniz yok.");
         }
 
-        // Opsiyonel: Mesajın gönderilmesinden sonra belirli bir süre içinde güncellenmesine izin verilebilir.
-        // const timeDiff = new Date() - message.createdAt;
-        // if (timeDiff > 5 * 60 * 1000) { // 5 dakika
-        //     return Response.forbidden(res, "Mesajı göndermenizin üzerinden çok zaman geçtiği için güncelleyemezsiniz.");
-        // }
-
         const updatedMessage = await prisma.message.update({
             where: { id: messageId },
-            data: { 
+            data: {
                 content: content,
-                isEdited: true 
+                isEdited: true
             },
             include: {
                 sender: { select: { id: true, username: true, nickname: true, profilePictureUrl: true } }
             }
         });
-        
-        // TODO: WebSocket ile mesaj güncellemesini yayınla
-        return Response.ok(res, "Mesaj başarıyla güncellendi.", { mesaj: updatedMessage });
 
+        // WebSocket ile mesaj güncellemesini yayınla
+        const io = req.app.get('io');
+        io.to(updatedMessage.conversationId).emit('update_message', updatedMessage);
+
+        return Response.ok(res, "Mesaj başarıyla güncellendi.", { mesaj: updatedMessage });
     } catch (error) {
         console.error(`Mesaj güncelleme hatası:`, error);
         return Response.internalServerError(res, "Mesaj güncellenirken bir hata oluştu.");
     }
 };
-
 
 exports.deleteMessage = async (req, res) => {
     const { messageId } = req.params;
@@ -131,16 +139,31 @@ exports.deleteMessage = async (req, res) => {
         const message = await prisma.message.findUnique({ where: { id: messageId } });
         if (!message) return Response.notFound(res, "Silinecek mesaj bulunamadı.");
 
+        const canDeleteGlobally = userId === message.senderId || req.user.role === UserRole.ADMIN;
+
         if (String(forMeOnly).toLowerCase() === 'true') {
-            // Sadece kullanıcı için silme mantığı...
+            let deletedFor = Array.isArray(message.isDeletedFor) ? message.isDeletedFor : [];
+            if (!deletedFor.includes(userId)) {
+                deletedFor.push(userId);
+                await prisma.message.update({
+                    where: { id: messageId },
+                    data: { isDeletedFor: deletedFor },
+                });
+            }
             return Response.ok(res, "Mesaj sizin için başarıyla silindi.");
         } else {
-            // Herkesten silme yetki kontrolü ve işlemi...
-            const canDeleteGlobally = userId === message.senderId || req.user.role === UserRole.ADMIN; // Simplified
             if (!canDeleteGlobally) {
                 return Response.forbidden(res, "Bu mesajı herkesten silme yetkiniz yok.");
             }
             await prisma.message.delete({ where: { id: messageId } });
+
+            // WebSocket ile mesaj silme olayını yayınla
+            const io = req.app.get('io');
+            io.to(message.conversationId).emit('delete_message', {
+                messageId: messageId,
+                conversationId: message.conversationId
+            });
+
             return Response.ok(res, "Mesaj herkesten başarıyla silindi.");
         }
     } catch (error) {

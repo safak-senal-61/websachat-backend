@@ -111,7 +111,10 @@ const swaggerOptions = {
 };
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'WEBSACHAT API Docs' }));
-
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
 // --- Hata Yönetimi Middleware'leri ---
 app.use('/*', (req, res) => {
     Response.notFound(res, `API Kaynağı bulunamadı: ${req.originalUrl}`);

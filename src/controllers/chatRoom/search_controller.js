@@ -49,8 +49,8 @@ const searchChatRooms = async (req, res) => {
             status: ChatRoomStatus.ACTIVE,
             type: ChatRoomType.PUBLIC,
             OR: [
-                { title: { contains: query, mode: 'insensitive' } },
-                { description: { contains: query, mode: 'insensitive' } },
+                { title: { contains: query } },
+                { description: { contains: query } },
             ],
         };
 
