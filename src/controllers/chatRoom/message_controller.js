@@ -1,11 +1,9 @@
-// src/controllers/chatRoom/message.controller.js
+// src/controllers/chatRoom/message_controller.js
 
-const { PrismaClient, ChatRoomStatus } = require('../../generated/prisma');
+const { PrismaClient, ChatRoomStatus, MessageType } = require('../../generated/prisma');
 const prisma = new PrismaClient();
 const Response = require('../../utils/responseHandler');
 const { parseJsonArrayField, isUserRoomModerator } = require('./utils.js');
-
-// ... getRoomMessages fonksiyonu aynı kalır ...
 
 const getRoomMessages = async (req, res) => {
     const { roomId } = req.params;
@@ -47,6 +45,11 @@ const postMessageToRoom = async (req, res) => {
         return Response.badRequest(res, "Mesaj içeriği boş olamaz.");
     }
 
+    const messageTypeEnumValue = MessageType[messageType.toUpperCase()];
+    if (!messageTypeEnumValue) {
+        return Response.badRequest(res, `Geçersiz mesaj tipi: ${messageType}`);
+    }
+
     try {
         const room = await prisma.chatRoom.findUnique({ where: { id: roomId } });
         if (!room || room.status !== ChatRoomStatus.ACTIVE) {
@@ -63,15 +66,22 @@ const postMessageToRoom = async (req, res) => {
         }
 
         const newMessage = await prisma.message.create({
-            data: { roomId, senderId, content, messageType },
+            data: {
+                roomId,
+                senderId,
+                content,
+                messageType: messageTypeEnumValue,
+                conversationId: roomId
+            },
             include: { sender: { select: { id: true, username: true, nickname: true, profilePictureUrl: true } } }
         });
 
-        // --- YENİ EKLENDİ: WebSocket ile yeni oda mesajını yayınla ---
+        // --- GÜNCELLENMİŞ KISIM ---
+        // Uygulamanın io nesnesini al
         const io = req.app.get('io');
-        // 'roomId' aynı zamanda Socket.IO odasının adıdır.
+        // Mesajı odadaki diğer tüm istemcilere WebSocket üzerinden gönder
         io.to(roomId).emit('new_room_message', newMessage);
-        // --- YENİ KISIM SONU ---
+        // --- GÜNCELLEME SONU ---
 
         return Response.created(res, "Mesaj başarıyla gönderildi.", { mesaj: newMessage });
     } catch (error) {

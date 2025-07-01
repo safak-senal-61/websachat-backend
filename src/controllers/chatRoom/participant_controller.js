@@ -1,4 +1,4 @@
-// src/controllers/chatRoom/participant.controller.js
+// src/controllers/chatRoom/participant_controller.js
 
 const { PrismaClient, ChatRoomStatus, ChatRoomType } = require('../../generated/prisma');
 const prisma = new PrismaClient();
@@ -31,13 +31,18 @@ const joinChatRoom = async (req, res) => {
             return Response.forbidden(res, 'Oda kapasitesi dolu.');
         }
 
+        // --- GÜNCELLENMİŞ KISIM ---
+        activeParticipants.push(userId); // Yeni katılımcıyı listeye ekle
+
         await prisma.chatRoom.update({
             where: { id: roomId },
             data: {
-                activeParticipants: { push: userId },
+                activeParticipants: activeParticipants, // Güncellenmiş listeyi JSON alanı olarak kaydet
                 currentParticipantCount: { increment: 1 }
             }
         });
+        // --- GÜNCELLEME SONU ---
+
         return Response.ok(res, 'Odaya başarıyla katıldınız.');
     } catch (error) {
         console.error(`Odaya katılma hatası (Oda ID: ${roomId}, Kullanıcı ID: ${userId}):`, error);
@@ -58,14 +63,18 @@ const leaveChatRoom = async (req, res) => {
             return Response.ok(res, 'Zaten bu odada değilsiniz.');
         }
 
-        const newParticipants = activeParticipants.filter(id => id !== userId);
+        // --- GÜNCELLENMİŞ KISIM ---
+        const newParticipants = activeParticipants.filter(id => id !== userId); // Katılımcıyı listeden çıkar
+
         await prisma.chatRoom.update({
             where: { id: roomId },
             data: {
-                activeParticipants: newParticipants,
+                activeParticipants: newParticipants, // Güncellenmiş listeyi JSON alanı olarak kaydet
                 currentParticipantCount: { decrement: 1 }
             }
         });
+        // --- GÜNCELLEME SONU ---
+
         return Response.ok(res, 'Odadan başarıyla ayrıldınız.');
     } catch (error) {
         console.error(`Odadan ayrılma hatası (Oda ID: ${roomId}, Kullanıcı ID: ${userId}):`, error);

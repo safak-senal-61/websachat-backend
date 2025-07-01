@@ -10,26 +10,21 @@ const swaggerUi = require('swagger-ui-express');
 const session = require('express-session');
 const passport = require('passport');
 
-// --- ROTA İMPORTLARI ---
-// SADECE ana birleştirici rotayı import ediyoruz. Diğer tüm rotalar bunun içindedir.
 const mainRouter = require('./routes');
-
 const Response = require('./utils/responseHandler');
 require('./config/passport_setup');
 
 const app = express();
 console.log('DEBUG: app.js - Express uygulaması yapılandırılıyor...');
 
-// --- CORS Yapılandırması ---
+// Frontend ve diğer gerekli adresler için izin verilen origin'ler listesi
 const allowedOrigins = [
-    'https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev/auth/google/callback',
-    'https://3000-firebase-chatgit-1749503120290.cluster-l6vkdperq5ebaqo3qy4ksvoqom.cloudworkstations.dev',
-    'https://websachat-web-610000.web.app',
-    'http://localhost:3000',
+    'https://websachat-web-610000.web.app', // Firebase Hosting'deki adresiniz
+    'http://localhost:3000',               // Yerel frontend geliştirme (Next.js genellikle 3000 portunu kullanır)
+    'http://localhost:3001',               // Farklı bir yerel port
+    // Google Cloud Workstations URL'leriniz
     'https://3000-firebase-websachat-bacendgit-1750692398761.cluster-axf5tvtfjjfekvhwxwkkkzsk2y.cloudworkstations.dev',
-    'http://localhost:3001',
-    'https://d033c711-5834-4f77-868a-94ae778c35f1-00-33t75erjtazez.janeway.replit.dev',
-    'https://sandbox-api.iyzipay.com',
+    'https://3000-firebase-chatgit-1749503120290.cluster-l6vkdperq5ebaqo3qy4ksvoqom.cloudworkstations.dev',
     'https://3000-firebase-websachat-web-1748782524865.cluster-3gc7bglotjgwuxlqpiut7yyqt4.cloudworkstations.dev',
 ];
 
@@ -47,16 +42,18 @@ const corsOptions = {
   credentials: true,
 };
 
-// --- Temel Middleware'ler ---
+// --- GÜNCELLENMİŞ KISIM: Proxy ve Güvenlik Ayarları ---
+app.set('trust proxy', 1); // Nginx, Cloudflare, Google Cloud Load Balancer gibi proxy'lerin arkasında çalışırken bu ayar önemlidir.
+
 app.use(cors(corsOptions));
+
+// Helmet'i daha esnek yapılandırıyoruz.
 app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            "script-src": ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://download.agora.io"],
-        },
-    },
+    contentSecurityPolicy: false, // Geliştirme için daha esnek. Canlı ortamda spesifik kurallar ekleyebilirsiniz.
+    crossOriginEmbedderPolicy: false,
 }));
+// --- GÜNCELLEME SONU ---
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -66,30 +63,26 @@ if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
 }
 
-// --- Session ve Passport Middleware'leri ---
 app.use(session({
     secret: process.env.SESSION_SECRET || 'varsayilan-cok-gizli-session-anahtari',
     resave: false,
     saveUninitialized: false,
+    proxy: true, // Session'ın da proxy'ye güvenmesini sağlar
     cookie: {
-      httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
       sameSite: 'lax',
     },
 }));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// --- Statik Dosya Sunumu ---
 const publicPath = nodePath.join(__dirname, '../public');
 app.use(express.static(publicPath));
 console.log(`✅ Statik dosyalar şu dizinden sunulacak: ${publicPath}`);
 
-// --- API ROTALARI ---
-// Tüm rotalarımızı  altında merkezi olarak kullanıyoruz.
 app.use('/', mainRouter);
 
-// --- Swagger ---
 const SWAGGER_API_BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const swaggerOptions = {
   swaggerDefinition: {
@@ -106,7 +99,6 @@ const swaggerOptions = {
         }
     },
   },
-  // Modüler yapıya uygun olarak, 'routes' klasöründeki tüm .js dosyalarını tara.
   apis: ['./src/routes/**/*.js'],
 };
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
@@ -115,21 +107,14 @@ app.get('/api-docs.json', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.send(swaggerSpec);
 });
-// --- Hata Yönetimi Middleware'leri ---
-app.use('/*', (req, res) => {
-    Response.notFound(res, `API Kaynağı bulunamadı: ${req.originalUrl}`);
+
+app.use((req, res, next) => {
+    Response.notFound(res, `API Kaynağı bulunamadı: ${req.method} ${req.originalUrl}`);
 });
 
 app.use((err, req, res, next) => {
-    console.error("GLOBAL HATA YÖNETİCİSİ:", err.message);
-    if(process.env.NODE_ENV === 'development') {
-      console.error(err.stack);
-    }
+    console.error("GLOBAL HATA YÖNETİCİSİ:", err);
     Response.internalServerError(res, err.message || 'Beklenmedik bir sunucu hatası oluştu.');
-});
-
-app.use((req, res) => {
-    res.status(404).send("<h1>404 - Sayfa Bulunamadı</h1>");
 });
 
 module.exports = { app, corsOptions };

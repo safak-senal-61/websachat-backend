@@ -1,4 +1,4 @@
-// src/main.js
+// src/server.js
 
 require('dotenv').config();
 const http = require('http');
@@ -13,9 +13,14 @@ async function main() {
         console.log('🏁 Sunucu başlatılıyor...');
 
         const server = http.createServer(app);
+
+        // --- GÜNCELLENMİŞ SOCKET.IO YAPILANDIRMASI ---
         const io = new Server(server, {
+            // Socket.IO için CORS ayarlarını Express ile aynı yapılandırmadan alıyoruz.
             cors: corsOptions,
-            pingTimeout: 60000,
+            // Proxy arkasında doğru çalışması için 'polling'i de eklemek iyi bir pratiktir.
+            // Socket.IO önce websocket ile bağlanmaya çalışır, olmazsa polling'e düşer.
+            transports: ['websocket', 'polling'], 
         });
 
         initializeSignalingServer(io);
